@@ -1,0 +1,9 @@
+- insert:
+    - id: md-memory
+      name: dsh-md-memory
+      config:
+        autoRecall: true
+        autoExtract: true
+        indexBytes: 6144
+        bodyBytes: 12288
+        debug: true

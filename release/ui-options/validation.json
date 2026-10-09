@@ -1,0 +1,10 @@
+{
+  "designs": 3,
+  "desktop": true,
+  "narrow": true,
+  "dark": true,
+  "controls": true,
+  "search": true,
+  "behaviorPreview": true,
+  "errors": []
+}

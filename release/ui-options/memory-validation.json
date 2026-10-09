@@ -1,0 +1,16 @@
+{
+  "designs": 3,
+  "desktop": true,
+  "dark": true,
+  "narrow": true,
+  "scope": true,
+  "search": true,
+  "edit": true,
+  "disable": true,
+  "create": true,
+  "deleteCancelAndConfirm": true,
+  "noUnsupportedActions": true,
+  "draftProtection": true,
+  "configurationSwitch": true,
+  "errors": []
+}

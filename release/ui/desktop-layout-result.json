@@ -1,0 +1,337 @@
+{
+  "candidateCss": true,
+  "results": [
+    {
+      "width": 1280,
+      "geometry": {
+        ".mm-page": {
+          "x": 280,
+          "y": 0,
+          "width": 1000,
+          "height": 820,
+          "scrollWidth": 1000,
+          "clientWidth": 1000,
+          "scrollHeight": 820,
+          "clientHeight": 820,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-workspace": {
+          "x": 280,
+          "y": 102.78125,
+          "width": 1000,
+          "height": 717.21875,
+          "scrollWidth": 1000,
+          "clientWidth": 1000,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        },
+        ".mm-library-nav": {
+          "x": 280,
+          "y": 102.78125,
+          "width": 200,
+          "height": 717.21875,
+          "scrollWidth": 200,
+          "clientWidth": 200,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-library": {
+          "x": 490,
+          "y": 102.78125,
+          "width": 300,
+          "height": 717.21875,
+          "scrollWidth": 300,
+          "clientWidth": 300,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-entry-list": {
+          "x": 508,
+          "y": 292.640625,
+          "width": 264,
+          "height": 504.359375,
+          "scrollWidth": 254,
+          "clientWidth": 254,
+          "scrollHeight": 504,
+          "clientHeight": 504,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-editor": {
+          "x": 800,
+          "y": 102.78125,
+          "width": 480,
+          "height": 717.21875,
+          "scrollWidth": 470,
+          "clientWidth": 470,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        }
+      }
+    },
+    {
+      "width": 1440,
+      "geometry": {
+        ".mm-page": {
+          "x": 280,
+          "y": 0,
+          "width": 1160,
+          "height": 820,
+          "scrollWidth": 1160,
+          "clientWidth": 1160,
+          "scrollHeight": 820,
+          "clientHeight": 820,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-workspace": {
+          "x": 280,
+          "y": 102.78125,
+          "width": 1160,
+          "height": 717.21875,
+          "scrollWidth": 1160,
+          "clientWidth": 1160,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        },
+        ".mm-library-nav": {
+          "x": 280,
+          "y": 102.78125,
+          "width": 200,
+          "height": 717.21875,
+          "scrollWidth": 200,
+          "clientWidth": 200,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-library": {
+          "x": 490,
+          "y": 102.78125,
+          "width": 300,
+          "height": 717.21875,
+          "scrollWidth": 300,
+          "clientWidth": 300,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-entry-list": {
+          "x": 508,
+          "y": 292.640625,
+          "width": 264,
+          "height": 504.359375,
+          "scrollWidth": 254,
+          "clientWidth": 254,
+          "scrollHeight": 504,
+          "clientHeight": 504,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-editor": {
+          "x": 800,
+          "y": 102.78125,
+          "width": 640,
+          "height": 717.21875,
+          "scrollWidth": 630,
+          "clientWidth": 630,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        }
+      }
+    },
+    {
+      "width": 1100,
+      "geometry": {
+        ".mm-page": {
+          "x": 280,
+          "y": 0,
+          "width": 820,
+          "height": 820,
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "scrollHeight": 820,
+          "clientHeight": 820,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-workspace": {
+          "x": 280,
+          "y": 102.78125,
+          "width": 820,
+          "height": 717.21875,
+          "scrollWidth": 820,
+          "clientWidth": 820,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        },
+        ".mm-library-nav": {
+          "x": 280,
+          "y": 102.78125,
+          "width": 160,
+          "height": 717.21875,
+          "scrollWidth": 160,
+          "clientWidth": 160,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "1",
+          "gridRow": "1 / 3",
+          "display": "flex"
+        },
+        ".mm-library": {
+          "x": 440,
+          "y": 102.78125,
+          "width": 660,
+          "height": 304.8125,
+          "scrollWidth": 660,
+          "clientWidth": 660,
+          "scrollHeight": 305,
+          "clientHeight": 305,
+          "gridColumn": "2",
+          "gridRow": "1",
+          "display": "flex"
+        },
+        ".mm-entry-list": {
+          "x": 458,
+          "y": 289.640625,
+          "width": 624,
+          "height": 97.953125,
+          "scrollWidth": 614,
+          "clientWidth": 614,
+          "scrollHeight": 265,
+          "clientHeight": 98,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-editor": {
+          "x": 440,
+          "y": 407.59375,
+          "width": 660,
+          "height": 412.40625,
+          "scrollWidth": 650,
+          "clientWidth": 650,
+          "scrollHeight": 411,
+          "clientHeight": 411,
+          "gridColumn": "2",
+          "gridRow": "2",
+          "display": "grid"
+        }
+      }
+    },
+    {
+      "width": 920,
+      "geometry": {
+        ".mm-page": {
+          "x": 56,
+          "y": 0,
+          "width": 864,
+          "height": 820,
+          "scrollWidth": 864,
+          "clientWidth": 864,
+          "scrollHeight": 820,
+          "clientHeight": 820,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-workspace": {
+          "x": 56,
+          "y": 102.78125,
+          "width": 864,
+          "height": 717.21875,
+          "scrollWidth": 864,
+          "clientWidth": 864,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        },
+        ".mm-library-nav": {
+          "x": 56,
+          "y": 102.78125,
+          "width": 200,
+          "height": 717.21875,
+          "scrollWidth": 200,
+          "clientWidth": 200,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-library": {
+          "x": 266,
+          "y": 102.78125,
+          "width": 300,
+          "height": 717.21875,
+          "scrollWidth": 300,
+          "clientWidth": 300,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-entry-list": {
+          "x": 284,
+          "y": 292.640625,
+          "width": 264,
+          "height": 504.359375,
+          "scrollWidth": 254,
+          "clientWidth": 254,
+          "scrollHeight": 504,
+          "clientHeight": 504,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "flex"
+        },
+        ".mm-editor": {
+          "x": 576,
+          "y": 102.78125,
+          "width": 344,
+          "height": 717.21875,
+          "scrollWidth": 334,
+          "clientWidth": 334,
+          "scrollHeight": 717,
+          "clientHeight": 717,
+          "gridColumn": "auto",
+          "gridRow": "auto",
+          "display": "grid"
+        }
+      }
+    }
+  ]
+}

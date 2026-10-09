@@ -1,0 +1,22 @@
+# Add this override to the selected DSH profile after installing the bundle.
+# A patch replaces the complete config for this row.
+- id: md-memory
+  config:
+    memoryDir: 'C:/Users/89123/.dsh/md-memory'
+    indexBytes: 6144
+    bodyBytes: 12288
+    autoRecall: true
+    autoExtract: true
+    extractionProvider: ''
+    extractionModel: ''
+    extractionTimeoutMs: 30000
+    extractionMaxTokens: 4096
+    extractionMaxOperations: 5
+    extractionAttempts: 2
+    enableInHeadless: false
+    debug: true
+    # 逐项目读取授权通常由记忆页面维护；profile override 会整体替换该行 config：
+    # crossProject:
+    #   <项目id>:
+    #     - user
+    #     - <另一个项目id>

@@ -1,0 +1,26 @@
+{
+  "plugin": {
+    "entryId": "include:md-memory",
+    "moduleName": "dsh-md-memory",
+    "enabled": true,
+    "fiberPhase": "active",
+    "meta": {
+      "title": "dsh-md-memory",
+      "description": "Markdown-only persistent memory for DeepSeek Harness"
+    },
+    "patchId": "md-memory"
+  },
+  "root": "C:\\Users\\89123\\.dsh\\md-memory",
+  "enabled": {
+    "index": true,
+    "body": true,
+    "extraction": true
+  },
+  "grants": 3,
+  "sidebar": true,
+  "library": true,
+  "editor": true,
+  "move": true,
+  "settings": true,
+  "crossProject": true
+}

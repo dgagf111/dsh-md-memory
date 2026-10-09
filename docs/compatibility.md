@@ -1,0 +1,27 @@
+# 接口与验证
+
+兼容矩阵核对于 2026-10-09：CLI 的 latest/next 为 `0.2.0-rc.2`，alpha 为 `0.2.1-alpha.1`。各组件的 npm latest 可能滞后，兼容脚本始终安装明确版本。
+
+| DSH | Cordis | 源码基线 |
+|---|---|---|
+| 0.2.0-rc.2 | 4.0.4 | dsh-v0.2.0-rc.2 / 639ed015397290b3745d163aafe02ffee4aa3f84 |
+| 0.2.1-alpha.1 | 4.0.5-alpha.1 | dsh-v0.2.1-alpha.1 / 5badb15009ae1756c3afe0ae0cef1faafc290ccc |
+
+## 使用的公开接口
+
+- Cordis 命名导出 apply/Config/inject；包包含 dsh.bundle.patch 安装元数据。
+- `systemPrompt.section()`：固定行为纪律，关闭模板插值。
+- `systemPrompt.context()`：动态索引与正文，作为宿主可记录的上下文快照。
+- `agent/pre-step`：每次步骤前重新扫描、排名与刷新；返回原来的 next 决策。
+- `session/event` 的 `turn/end.reason.kind=completed`：提交后排队，不阻塞主循环。
+- `sessionQuery.observeSession()`：恢复时读取公开会话切片与继承边界；不依赖 deprecated 同步事件读取。
+- `tools.register(defineTool(...))`：规范 JSON 值与 Native 渲染，PTC 直接接收规范值。
+- `llm.prepareCall()` 与单次 prepared stream：沿用有效路由，不发明 purpose 值或绕过宿主 provider。
+
+## 测试范围
+
+单元测试检查排名、字节预算、中文与别名、零分索引填充、正文按需、冲突、人工编辑、敏感内容拒绝、事务恢复、遗忘、提取检查点及 Git worktree 身份。跨项目部分另测授权矩阵归一化与失效剔除、可见来源解析与 handle 冲突退化、被授权条目的预算护栏与链接渲染、多来源快照、`recallUser` 旧键迁移，以及配置页保存时把每个项目写成显式矩阵。移动部分另测 user/项目之间任意互转的内容与 `created`/`revision` 保真、原范围历史清理与 tombstone 护栏、同名拒绝、同范围拒绝、陈旧拒绝，以及目标范围旧遗忘标记被显式移动清除。
+
+宿主测试实际组装指定版本的 Cordis、AgentLoop、LLM、Session、SystemPrompt 与 ToolRuntime，用脚本化模型验证：插件加载、模型工具写入、下一步骤上下文刷新、独立辅助调用、跨会话共享、恢复去重、fork 继承排除和子 Agent 隔离。跨项目部分另验证：未授权项目读取被拒（`PROJECT_NOT_VISIBLE`）、保存授权后活动会话立即读到、`status.visibleSources` 与 `search`/`list` 覆盖被授权项目，以及带 `project` 的写入只落在当前项目。移动部分在真实注册的管理路由上验证 user→项目与项目→user、`REVISION_CONFLICT`（409）和 `SAME_TARGET`（400）。PTC 使用真实 run_code 分发桥和测试后端验证规范输出，不验证操作系统沙箱。
+
+模型响应来自测试 adapter，不消耗用户模型额度；提示词在用户所选真实模型上的保存质量与成本需实际使用观察。断电耐久性没有单独验证。未知版本不自动扩大 peer 范围，每次扩展版本前重新执行这套矩阵。

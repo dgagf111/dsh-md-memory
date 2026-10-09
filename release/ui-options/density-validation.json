@@ -1,0 +1,35 @@
+{
+  "results": [
+    {
+      "design": "a",
+      "projectCount": 39,
+      "memoryCount": 44,
+      "cardHeight": 79,
+      "scroll": true,
+      "drag": true,
+      "minMax": true,
+      "hoverGripOnly": true
+    },
+    {
+      "design": "b",
+      "projectCount": 39,
+      "memoryCount": 44,
+      "cardHeight": 79,
+      "scroll": true,
+      "drag": true,
+      "minMax": true,
+      "hoverGripOnly": true
+    },
+    {
+      "design": "c",
+      "projectCount": 39,
+      "memoryCount": 44,
+      "cardHeight": 55,
+      "scroll": true,
+      "drag": true,
+      "minMax": true,
+      "hoverGripOnly": true
+    }
+  ],
+  "errors": []
+}
