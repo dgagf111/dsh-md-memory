@@ -85,7 +85,7 @@ export class ExtractionScheduler {
           this.controller.signal.throwIfAborted();
           try {
             this.logger.info({ event: 'extraction.started', session, project: task.project?.id, turn: task.turn, attempt, messages: fresh.length, provider: task.provider, model: task.model });
-            output = proposals(await this.completion(task, EXTRACTION_POLICY.replace('At most 5 operations', `At most ${this.maximum} operations`), payload, this.controller.signal), this.maximum);
+            output = proposals(await this.completion(task, EXTRACTION_POLICY.replace('最多 5 个操作', `最多 ${this.maximum} 个操作`), payload, this.controller.signal), this.maximum);
             break;
           } catch (error) {
             this.logger.error({ event: 'extraction.attempt_failed', session, turn: task.turn, attempt }, error);

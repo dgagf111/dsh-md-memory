@@ -533,7 +533,7 @@ export function rankMemories(memories: Memory[], query: RetrievalQuery, sources:
 /* ------------------------------------------------------------------ */
 
 const SENTENCE_TERMINATORS = new Set<string>(['。', '！', '？', '；', '…', '!', '?', ';', '\n']);
-const INDEX_FOOTER = 'Read full entries with md_memory_read(scope, name); md_memory_search covers the whole library.';
+const INDEX_FOOTER = '用 md_memory_read(scope, name) 读完整条目；md_memory_search 覆盖整个库。同主题扩展原条目，不要新建重复。';
 
 function isSentenceEnd(chars: readonly string[], index: number): boolean {
   const char = chars[index];

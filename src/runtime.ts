@@ -25,8 +25,8 @@ interface AgentState {
 const output = { schema: { type: 'json' } as const,
   render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }] };
 const scope = { type: 'string', enum: ['user', 'project'], required: true } as const;
-const name = { type: 'string', required: true, description: 'Entry kebab-case name without .md; use with scope.' } as const;
-const projectRef = { type: 'string', description: 'Read-only handle or id of an already granted project, as printed by the index (project/<handle>/<name>.md). Omit for the current project.' } as const;
+const name = { type: 'string', required: true, description: '条目的 kebab-case 名称，不带 .md；与 scope 一起使用。' } as const;
+const projectRef = { type: 'string', description: '已授权项目的只读 handle 或 id，形如索引里显示的 project/<handle>/<name>.md。读取当前项目时省略。' } as const;
 function text(message: Message): string {
   return message.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
 }
@@ -152,7 +152,7 @@ export class MemoryRuntime {
     if (!state) return '';
     if (kind === 'body') return state.bodies;
     if (!this.config.indexEnabled) return '';
-    if (state.error) return escapeContext(`Memory unavailable: ${state.error}. Inspect md_memory_status.`);
+    if (state.error) return escapeContext(`记忆不可用：${state.error}。请检查 md_memory_status。`);
     return state.index?.text ?? '';
   }
   async ready(agent: Agent): Promise<AgentState> {
@@ -242,7 +242,7 @@ export class MemoryRuntime {
           throw error;
         }
       } });
-    register(defineTool({ name: 'md_memory_search', description: 'Search every memory block this session may read (the current project, granted projects, and the user scope when granted), including entries omitted from the injected index. Read a hit before relying on details.',
+    register(defineTool({ name: 'md_memory_search', description: '检索本会话可读的每个记忆块（当前项目、被授权的项目，以及授权时的用户作用域），包括未出现在注入索引里的条目。新建条目前先调用它，确认是否已有条目覆盖同一主题；依赖细节前先读命中条目。',
       parameters: { query: { type: 'string', required: true }, limit: { type: 'integer' } }, output,
       execute: async (args, exec) => {
         const { agent, state } = await this.requireAgent(exec.agent);
@@ -255,7 +255,7 @@ export class MemoryRuntime {
         this.logger.info({ event: 'memory.search', session: agent.session.id, matches: ranked.length });
         return { total: ranked.length, entries: ranked.slice(0, limit).map(r => ({ scope: r.memory.scope, name: r.memory.name, title: r.memory.title, description: r.memory.description, score: r.score, project: this.projectInfo(state, r.memory) })) };
       } }));
-    register(defineTool({ name: 'md_memory_read', description: 'Read one full memory. Pass project only for a granted project printed as project/<handle>/<name>.md. Returned revision and hash are required to update it.', parameters: { scope, name, project: projectRef }, output,
+    register(defineTool({ name: 'md_memory_read', description: '读取一条记忆的完整内容。只有读取授权项目中形如 project/<handle>/<name>.md 的条目时才传 project。返回的 revision 与 hash 是更新它时必需的。', parameters: { scope, name, project: projectRef }, output,
       execute: async (args, exec) => {
         const { state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
         if (args.scope === 'user' && args.project !== undefined) throw new MemoryError('INVALID_INPUT', 'The user scope has no project.');
@@ -263,11 +263,11 @@ export class MemoryRuntime {
         const m = await this.store.read(args.scope, args.name, target);
         return { scope: m.scope, name: m.name, title: m.title, description: m.description, type: m.type, body: m.body, tags: m.tags, aliases: m.aliases, paths: m.paths, revision: m.revision, hash: m.hash, source: { ...m.source } };
       } }));
-    register(defineTool({ name: 'md_memory_write', description: 'Commit a durable memory now. Search/read before creating or updating. Existing entries require current expectedRevision AND expectedHash.',
+    register(defineTool({ name: 'md_memory_write', description: '立即提交一条长期记忆。先检索并读取所有覆盖同一主题的条目：只要存在（哪怕只是部分覆盖、哪怕已经过时）就更新它，不要另建平行条目；只有没有任何条目覆盖该主题时才新建。更新已有条目必须提供当前的 expectedRevision 与 expectedHash。',
       parameters: { scope, name, title: { type: 'string', required: true }, description: { type: 'string', required: true },
         type: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], required: true }, body: { type: 'string', required: true },
         tags: { type: 'array', items: { type: 'string' } }, aliases: { type: 'array', items: { type: 'string' } }, paths: { type: 'array', items: { type: 'string' } },
-        expectedRevision: { type: 'integer' }, expectedHash: { type: 'string' }, userRequested: { type: 'boolean', description: 'True only for an explicit user save request; required to remember a forgotten entry again.' } }, output,
+        expectedRevision: { type: 'integer' }, expectedHash: { type: 'string' }, userRequested: { type: 'boolean', description: '仅在用户明确要求保存时为 true；重新记住一条已被忘记的条目时同样必需。' } }, output,
       execute: async (args, exec) => {
         const { agent, state } = await this.requireAgent(exec.agent);
         this.assertLocalScope(args);
@@ -278,7 +278,7 @@ export class MemoryRuntime {
         catch (error) { this.failed(agent.session.id, state, error); contextWarning = state.error!; }
         return { committed: true, scope: m.scope, name: m.name, revision: m.revision, hash: m.hash, contextWarning };
       } }));
-    register(defineTool({ name: 'md_memory_forget', description: 'Forget an entry ONLY when the user explicitly requests it. Removes body and revision history; leaves a tombstone without original text.', parameters: { scope, name, userRequested: { type: 'boolean', const: true, required: true } }, output,
+    register(defineTool({ name: 'md_memory_forget', description: '仅在用户明确要求时忘记一条记忆。删除正文与修订历史，留下不含原文的墓碑。', parameters: { scope, name, userRequested: { type: 'boolean', const: true, required: true } }, output,
       execute: async (args, exec) => {
         const { agent, state } = await this.requireAgent(exec.agent);
         this.assertLocalScope(args);
@@ -288,7 +288,7 @@ export class MemoryRuntime {
         catch (error) { this.failed(agent.session.id, state, error); contextWarning = state.error!; }
         return { committed: true, scope: args.scope, name: args.name, contextWarning };
       } }));
-    register(defineTool({ name: 'md_memory_list', description: 'List readable entries with descriptions, no bodies. Optional project narrows to one granted project; optional scope narrows to the user scope or project scopes.', parameters: { scope: { type: 'string', enum: ['user', 'project'] }, project: projectRef }, output,
+    register(defineTool({ name: 'md_memory_list', description: '列出可读条目及其描述，不含正文。可选 project 限定到某个被授权项目；可选 scope 限定到用户作用域或项目作用域。', parameters: { scope: { type: 'string', enum: ['user', 'project'] }, project: projectRef }, output,
       execute: async (args, exec) => {
         const { agent, state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted(); await this.refresh(agent, state);
         const target = args.project === undefined ? undefined : this.readTarget(state, args.project);
@@ -298,7 +298,7 @@ export class MemoryRuntime {
           .filter(memory => !args.scope || memory.scope === args.scope)
           .map(memory => ({ scope: memory.scope, name: memory.name, title: memory.title, description: memory.description, revision: memory.revision, project: this.projectInfo(state, memory) })) };
       } }));
-    register(defineTool({ name: 'md_memory_status', description: 'Inspect workspace binding, readable memory blocks, budgets, invalid files, background extraction and errors.', parameters: {}, output,
+    register(defineTool({ name: 'md_memory_status', description: '查看工作区绑定、可读记忆块、预算、无效文件、后台提取与错误。', parameters: {}, output,
       execute: async (_args, exec) => {
         const { agent, state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
         const visibleSources: VisibleSource[] = [];

@@ -34,7 +34,7 @@ class Adapter extends LlmAdapter {
   async resolveModel(provider, model) { return { provider, id: model, name: model }; }
   async * stream(options) {
     calls.push(options);
-    if (options.system?.startsWith('You are a background memory extraction task')) {
+    if (options.system?.startsWith('你是一个后台记忆提取任务')) {
       assert.equal(options.tools, undefined, 'background extraction has no tools');
       const data = JSON.parse(options.messages[0].content[0].text);
       extractionInputs.push(data);
@@ -97,9 +97,9 @@ try {
   const ptc = await execute(ctx, agent, 'run_code', { code: 'return await tools.md_memory_list({})', description: 'List stored memories' });
   assert.equal(ptc.result.entries.length, 2, 'PTC sees canonical object values, not native rendered strings');
   restoreNative();
-  const mainCalls = calls.filter(c => !c.system?.startsWith('You are a background'));
+  const mainCalls = calls.filter(c => !c.system?.startsWith('你是一个后台'));
   assert(mainCalls.length >= 2);
-  assert(JSON.stringify(mainCalls[0].messages).includes('Before writing a new entry'));
+  assert(JSON.stringify(mainCalls[0].messages).includes('一条主题一条目'));
   assert(JSON.stringify(mainCalls[1].messages).includes('manual-rule.md'), 'next step refreshes memory context after tool commit');
   const found = await execute(ctx, agent, 'md_memory_search', { query: 'Markdown' });
   assert(found.entries.some(e => e.name === 'manual-rule'));
