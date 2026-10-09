@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStore } from '../src/store.js';
 import { createLogger } from '../src/logging.js';
-import { markdown, encodeMemory } from '../src/codec.js';
+import { markdown, encodeMemory, digest } from '../src/codec.js';
 import { MemoryError, type Logger, type ProjectIdentity, type WriteInput } from '../src/types.js';
 let root: string, store: MemoryStore, logger: Logger;
 const alpha: ProjectIdentity = { id: 'alpha-aaaaaaaaaaaaaaaa', cwd: 'C:/work/alpha', root: 'C:/work/alpha/.git', kind: 'git' };
@@ -52,6 +52,12 @@ describe('Markdown store', () => {
     await store.write(input({ source: { session: 'test', turn: 2, kind: 'explicit-user' } }));
     expect((await store.snapshot()).memories).toHaveLength(1);
   });
+  it('rejects background edits of disabled memories even with a current revision and hash', async () => {
+    const memory = await store.write(input({ status: 'disabled' }));
+    await expect(store.write(input({ body: '后台不应修改', expectedRevision: memory.revision, expectedHash: memory.hash,
+      source: { session: 'extract', turn: 1, kind: 'extraction' } }))).rejects.toMatchObject({ code: 'DISABLED_MEMORY' });
+    expect((await store.read('user', memory.name)).hash).toBe(memory.hash);
+  });
   it('reports malformed files while valid memories remain usable', async () => {
     await store.write(input());
     await writeFile(join(root, 'user', 'broken.md'), '---\ntitle: [unterminated\n---\nbody');
@@ -88,6 +94,13 @@ describe('Markdown store', () => {
     const directory = join(root, 'user', 'state');
     const content = await readFile(join(directory, (await readdir(directory))[0]!), 'utf8');
     expect(Buffer.byteLength(content)).toBeLessThan(512);
+  });
+  it('never regresses fragment progress within the same message', async () => {
+    await store.saveCheckpoint(undefined, 'chunk-session', { boundary: 10, offsetSeq: 12, offset: 900, offsetHash: digest('later') });
+    await store.saveCheckpoint(undefined, 'chunk-session', { boundary: 10, offsetSeq: 12, offset: 300, offsetHash: digest('earlier') });
+    expect((await store.checkpoint(undefined, 'chunk-session')).offset).toBe(900);
+    await store.saveCheckpoint(undefined, 'chunk-session', { boundary: 12 });
+    expect(await store.checkpoint(undefined, 'chunk-session')).toEqual({ boundary: 12 });
   });
 });
 
@@ -170,7 +183,7 @@ describe('moving memories between scopes', () => {
     expect((await store.snapshot()).memories).toHaveLength(1);
   });
 
-  it('undoes the destination copy when the source cannot be released', async () => {
+  it('retains both copies until a source failure can be recovered', async () => {
     await store.initializeProject(alpha);
     await store.write(input());
     const internal = store as unknown as { commit: (directory: string, transaction: { action: string }) => Promise<void> };
@@ -183,9 +196,65 @@ describe('moving memories between scopes', () => {
     };
     await expect(store.move('memory-rule', { scope: 'user' }, { scope: 'project', project: alpha })).rejects.toMatchObject({ code: 'COMMIT_INCOMPLETE' });
     expect(released).toBe(true);
-    await expect(store.read('project', 'memory-rule', alpha)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await store.read('project', 'memory-rule', alpha)).body).toBe(input().body);
     expect((await store.read('user', 'memory-rule')).name).toBe('memory-rule');
-    expect(await readFile(join(root, 'projects', alpha.id, 'MEMORY.md'), 'utf8')).not.toContain('memory-rule.md');
+    await new MemoryStore(root, logger).recoverAll();
+    await expect(store.read('user', 'memory-rule')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await store.read('project', 'memory-rule', alpha)).body).toBe(input().body);
+    expect(await readdir(join(root, 'moves'))).toEqual([]);
+  });
+
+  it.each(['user', 'target'])('recovers a move after %s index failure without losing its body', async place => {
+    await store.initializeProject(alpha);
+    const original = await store.write(input());
+    const internal = store as unknown as { rebuildIndex(directory: string): Promise<void> };
+    const rebuild = internal.rebuildIndex.bind(store);
+    const failing = place === 'user' ? store.directory('user') : store.directory('project', alpha);
+    internal.rebuildIndex = async directory => {
+      if (directory === failing) throw new Error('injected index failure after body mutation');
+      return rebuild(directory);
+    };
+    await expect(store.move(original.name, { scope: 'user' }, { scope: 'project', project: alpha })).rejects.toMatchObject({ code: 'COMMIT_INCOMPLETE' });
+    expect((await store.read('project', original.name, alpha)).body).toBe(original.body);
+    const restarted = new MemoryStore(root, logger);
+    await restarted.recoverAll();
+    await expect(restarted.read('user', original.name)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await restarted.read('project', original.name, alpha)).body).toBe(original.body);
+    expect(await readdir(join(root, 'moves'))).toEqual([]);
+    expect(await readdir(join(root, 'user', 'transactions'))).toEqual([]);
+    expect(await readdir(join(root, 'projects', alpha.id, 'transactions'))).toEqual([]);
+  });
+
+  it('recovers a move interrupted after the source commit completed', async () => {
+    await store.initializeProject(alpha);
+    const original = await store.write(input());
+    const internal = store as unknown as { commit(directory: string, transaction: { action: string }): Promise<void> };
+    const commit = internal.commit.bind(store);
+    internal.commit = async (directory, transaction) => {
+      await commit(directory, transaction);
+      if (transaction.action === 'forget') throw new Error('interrupted after source journal cleanup');
+    };
+    await expect(store.move(original.name, { scope: 'user' }, { scope: 'project', project: alpha })).rejects.toMatchObject({ code: 'COMMIT_INCOMPLETE' });
+    await new MemoryStore(root, logger).recoverAll();
+    await expect(store.read('user', original.name)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await store.read('project', original.name, alpha)).body).toBe(original.body);
+    expect(await readdir(join(root, 'moves'))).toEqual([]);
+  });
+
+  it('preserves an externally changed source when recovering a pending move', async () => {
+    await store.initializeProject(alpha);
+    const original = await store.write(input());
+    const internal = store as unknown as { commit(directory: string, transaction: { action: string }): Promise<void> };
+    const commit = internal.commit.bind(store);
+    internal.commit = async (directory, transaction) => {
+      if (transaction.action === 'forget') throw new Error('interrupted before deleting source');
+      return commit(directory, transaction);
+    };
+    await expect(store.move(original.name, { scope: 'user' }, { scope: 'project', project: alpha })).rejects.toMatchObject({ code: 'COMMIT_INCOMPLETE' });
+    await writeFile(original.filePath, (await readFile(original.filePath, 'utf8')).replace(original.body, '人工修改后的正文。'));
+    await expect(new MemoryStore(root, logger).recoverAll()).rejects.toMatchObject({ code: 'RECOVERY_CONFLICT' });
+    expect((await store.read('user', original.name)).body).toBe('人工修改后的正文。');
+    expect((await store.read('project', original.name, alpha)).body).toBe(original.body);
   });
 
   it('lets an explicit move clear an old forgotten marker in the destination', async () => {

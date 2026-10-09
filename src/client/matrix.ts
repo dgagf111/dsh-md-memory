@@ -15,7 +15,10 @@ import type { SettingsValues } from './api.js';
 export function matrixPayload(values: SettingsValues, projects: Group[]): Record<string, string[]> {
   const current = values.crossProject ?? {};
   if (projects.length === 0) return current;
-  return Object.fromEntries(projects.map(project => [project.id, [...(current[project.id] ?? ['user'])] ]));
+  // The server distinguishes missing projects from unreadable metadata; the
+  // browser's valid-project list cannot make that decision.
+  return Object.fromEntries([...Object.entries(current), ...projects.map(project => [project.id, current[project.id] ?? ['user']] as const)]
+    .map(([id, sources]) => [id, [...sources]]));
 }
 
 /**

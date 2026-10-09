@@ -1,6 +1,6 @@
 {
   "name": "dsh-md-memory",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Markdown-only persistent memory for DeepSeek Harness",
   "type": "module",
   "main": "./lib/index.js",

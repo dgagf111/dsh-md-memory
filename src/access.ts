@@ -46,14 +46,15 @@ export function handleMap(all: readonly ProjectIdentity[]): Record<string, strin
 }
 
 /**
- * Drops unknown projects, unknown sources, duplicated values and self-grants.
+ * Drops missing projects, missing sources, duplicated values and self-grants.
+ * Unreadable project directories retain their stored grants until repaired.
  * Never throws: a project directory can disappear long after it was granted.
  */
-export function normalizeMatrix(raw: unknown, known: readonly ProjectIdentity[]): { matrix: AccessMatrix; stale: string[] } {
+export function normalizeMatrix(raw: unknown, known: readonly ProjectIdentity[], unavailable: readonly string[] = []): { matrix: AccessMatrix; stale: string[] } {
   const matrix: AccessMatrix = {};
   const stale = new Set<string>();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { matrix, stale: [] };
-  const ids = new Set(known.map(project => project.id));
+  const ids = new Set([...known.map(project => project.id), ...unavailable.filter(id => PROJECT_ID.test(id))]);
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!ids.has(key)) { stale.add(key); continue; }
     if (!Array.isArray(value)) continue;

@@ -7,6 +7,10 @@ import { PROJECT_ID, USER_SOURCE } from './access.js';
 import { MemoryError, type Checkpoint, type Logger, type Memory, type MemoryPlace, type MemoryScope, type ProjectIdentity, type Snapshot, type WriteInput } from './types.js';
 
 interface Transaction { operation: string; action: 'write' | 'forget'; name: string; expectedHash?: string; content?: string; forgottenAt?: string; }
+interface MoveTransaction {
+  operation: string; name: string; from: MemoryPlace; to: MemoryPlace;
+  sourceHash: string; content: string; forgetOperation: string; forgottenAt: string;
+}
 /** Every project directory known to this memory root, valid ones and broken ones. */
 export interface ProjectRegistry { projects: ProjectIdentity[]; invalid: { id: string; message: string }[]; }
 export class MemoryStore {
@@ -40,6 +44,7 @@ export class MemoryStore {
     return registry;
   }
   async initializeProject(project: ProjectIdentity): Promise<void> {
+    await this.recoverMoves();
     const directory = this.directory('project', project);
     await withDirectoryLock(directory, async () => {
       const path = join(directory, 'PROJECT.md');
@@ -92,6 +97,7 @@ export class MemoryStore {
   }
   async write(input: WriteInput, project?: ProjectIdentity, signal?: AbortSignal): Promise<Memory> {
     validateWrite(input);
+    await this.recoverMoves(signal);
     const directory = this.directory(input.scope, project);
     const operation = input.operationId ?? randomUUID();
     try {
@@ -102,6 +108,9 @@ export class MemoryStore {
         const previous = await this.optional(path);
         const old = previous ? decodeMemory(previous, input.scope, input.name, path) : undefined;
         if (old?.operationId === operation) return old;
+        if (old?.status === 'disabled' && input.source.kind === 'extraction') {
+          throw new MemoryError('DISABLED_MEMORY', `Background extraction cannot modify disabled memory ${input.name}.`);
+        }
         if (old && (input.expectedRevision !== old.revision || input.expectedHash !== old.hash)) {
           throw new MemoryError('REVISION_CONFLICT', `Read ${input.scope}/${input.name} and supply its current revision and hash before updating.`);
         }
@@ -135,6 +144,7 @@ export class MemoryStore {
   }
   async forget(scope: MemoryScope, name: string, project?: ProjectIdentity, signal?: AbortSignal, expected?: { revision: number; hash: string }): Promise<void> {
     validateName(name);
+    await this.recoverMoves(signal);
     const directory = this.directory(scope, project);
     const operation = randomUUID();
     await withDirectoryLock(directory, async () => {
@@ -163,7 +173,7 @@ export class MemoryStore {
     // Two directories are always locked in path order, so opposite moves cannot deadlock.
     const [first, second] = [fromDirectory, toDirectory].sort() as [string, string];
     try {
-      return await withDirectoryLock(first, () => withDirectoryLock(second, async () => {
+      return await this.withMoveRecovery(() => withDirectoryLock(first, () => withDirectoryLock(second, async () => {
         await this.recover(fromDirectory, from.scope);
         await this.recover(toDirectory, to.scope);
         signal?.throwIfAborted();
@@ -182,24 +192,71 @@ export class MemoryStore {
         const content = encodeMemory(value);
         if (Buffer.byteLength(content) > 128 * 1024) throw new MemoryError('FILE_TOO_LARGE', 'Memory document exceeds 128 KiB. Split it before moving.');
         const moved = decodeMemory(content, to.scope, name, targetPath, sourceKey);
-        await this.commit(toDirectory, { operation, action: 'write', name, content });
+        // Persist the cross-scope intent before either copy changes. Recovery
+        // always finishes the move; it never deletes the only remaining copy.
+        const transaction: MoveTransaction = { operation, name, from, to, sourceHash: memory.hash, content,
+          forgetOperation: randomUUID(), forgottenAt: new Date().toISOString() };
+        const journal = join(this.root, 'moves', `${operation}.md`);
+        await atomicMarkdown(journal, markdown(transaction, '# Pending memory move'));
         try {
-          await this.commit(fromDirectory, { operation: randomUUID(), action: 'forget', name, forgottenAt: new Date().toISOString() });
+          await this.applyMove(transaction);
+          await rm(journal);
         } catch (error) {
-          // The move must not leave two live copies: undo the destination write if the source cannot be released.
-          try {
-            const current = await this.optional(targetPath);
-            if (current && digest(current) === digest(content)) { await rm(targetPath, { force: true }); await this.rebuildIndex(toDirectory); }
-          } catch (rollback) { this.logger.error({ event: 'memory.move_rollback_failed', operation, name, to: sourceKey }, rollback); }
-          this.logger.error({ event: 'memory.move_failed', operation, name, from: from.project?.id, to: sourceKey }, error);
-          throw error;
+          throw new MemoryError('COMMIT_INCOMPLETE', `Memory move is pending; its surviving copies are retained. Recover ${journal} before retrying.`, { cause: error });
         }
         this.logger.info({ event: 'memory.move_committed', operation, name, from: from.scope, fromProject: from.project?.id, to: to.scope, toProject: to.project?.id, revision: moved.revision, bytes: Buffer.byteLength(content) });
         return moved;
-      }), signal);
+      }, signal), signal), signal);
     } catch (error) {
       if (!(error instanceof MemoryError && error.code === 'REVISION_CONFLICT')) this.logger.error({ event: 'memory.move_rejected', operation, name, from: from.project?.id, to: to.project?.id }, error);
       throw error;
+    }
+  }
+  /** Both scope locks must be held by the caller. */
+  private async applyMove(transaction: MoveTransaction): Promise<void> {
+    const { name, from, to, content, sourceHash, operation, forgetOperation, forgottenAt } = transaction;
+    const source = this.directory(from.scope, from.project), target = this.directory(to.scope, to.project);
+    const previous = await this.optional(join(source, `${name}.md`));
+    const current = await this.optional(join(target, `${name}.md`));
+    if (previous && digest(previous) !== sourceHash) throw new MemoryError('RECOVERY_CONFLICT', `Source changed during a pending move: ${name}.`);
+    if (current && current !== content) throw new MemoryError('RECOVERY_CONFLICT', `Destination changed during a pending move: ${name}.`);
+    if (!previous && !current) throw new MemoryError('RECOVERY_CONFLICT', `Both copies are missing for pending move ${name}. Inspect its journal.`);
+    decodeMemory(content, to.scope, name, join(target, `${name}.md`));
+    await this.commit(target, { operation, action: 'write', name, content });
+    await this.commit(source, { operation: forgetOperation, action: 'forget', name, expectedHash: sourceHash, forgottenAt });
+  }
+  private async withMoveRecovery<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const directory = join(this.root, 'moves');
+    return withDirectoryLock(directory, async () => {
+      for (const file of (await this.files(directory)).sort()) {
+        if (!file.endsWith('.md') || file.startsWith('.')) continue;
+        const path = join(directory, file);
+        const transaction = parseFrontmatter(await readMarkdown(path, 512 * 1024)).metadata as unknown as MoveTransaction;
+        validateName(transaction.name);
+        if (!/^[a-z0-9-]{1,128}$/.test(transaction.operation) || file !== `${transaction.operation}.md`
+          || !/^[a-z0-9-]{1,128}$/.test(transaction.forgetOperation) || !/^[a-f0-9]{64}$/.test(transaction.sourceHash)
+          || typeof transaction.content !== 'string' || typeof transaction.forgottenAt !== 'string'
+          || Buffer.byteLength(transaction.content) > 128 * 1024
+          || !transaction.from || !transaction.to || !['user', 'project'].includes(transaction.from.scope)
+          || !['user', 'project'].includes(transaction.to.scope)) throw new MemoryError('INVALID_TRANSACTION', `Invalid move journal: ${path}`);
+        const from = this.directory(transaction.from.scope, transaction.from.project), to = this.directory(transaction.to.scope, transaction.to.project);
+        if (from === to) throw new MemoryError('INVALID_TRANSACTION', `Move journal has the same source and destination: ${path}`);
+        const [first, second] = [from, to].sort() as [string, string];
+        await withDirectoryLock(first, () => withDirectoryLock(second, async () => {
+          signal?.throwIfAborted();
+          // Scope journals are replayed by applyMove's idempotent commits. Do
+          // not replay a source forget before checking the surviving target.
+          await this.applyMove(transaction);
+          await rm(path);
+          this.logger.info({ event: 'memory.move_recovered', operation: transaction.operation, name: transaction.name });
+        }, signal), signal);
+      }
+      return run();
+    }, signal);
+  }
+  private async recoverMoves(signal?: AbortSignal): Promise<void> {
+    if ((await this.files(join(this.root, 'moves'))).some(file => file.endsWith('.md') && !file.startsWith('.'))) {
+      await this.withMoveRecovery(async () => {}, signal);
     }
   }
   private async commit(directory: string, transaction: Transaction): Promise<void> {
@@ -224,6 +281,8 @@ export class MemoryStore {
       const source = parseFrontmatter(transaction.content).metadata.source as { kind?: string } | undefined;
       if (source?.kind === 'explicit-user') await rm(join(directory, 'forgotten', `${transaction.name}.md`), { force: true });
     } else if (transaction.action === 'forget') {
+      const current = await this.optional(path);
+      if (current && transaction.expectedHash && digest(current) !== transaction.expectedHash) throw new MemoryError('RECOVERY_CONFLICT', `Pending deletion conflicts with current file: ${path}`);
       await atomicMarkdown(join(directory, 'forgotten', `${transaction.name}.md`), markdown({ name: transaction.name, forgottenAt: transaction.forgottenAt, operation: transaction.operation }, '# Forgotten memory\nNo original content is retained.'));
       await rm(path, { force: true });
       const history = resolve(directory, 'history', transaction.name);
@@ -270,6 +329,7 @@ export class MemoryStore {
     await atomicMarkdown(join(directory, 'MEMORY.md'), `# Memory index\n\n${lines.join('\n')}\n`);
   }
   async recoverAll(project?: ProjectIdentity): Promise<void> {
+    await this.recoverMoves();
     for (const scope of project ? ['user', 'project'] as const : ['user'] as const) {
       const directory = this.directory(scope, project);
       if ((await this.files(join(directory, 'transactions'))).some(file => file.endsWith('.md') && !file.startsWith('.'))) {
@@ -286,6 +346,14 @@ export class MemoryStore {
     if (!content) return { boundary: -1 };
     const value = parseFrontmatter(content).metadata as unknown as Checkpoint;
     if (!Number.isInteger(value.boundary)) throw new MemoryError('INVALID_CHECKPOINT', 'Malformed extraction checkpoint.');
+    if (value.pendingBoundary !== undefined && (!Number.isInteger(value.pendingBoundary) || value.pendingBoundary < value.boundary)) {
+      throw new MemoryError('INVALID_CHECKPOINT', 'Malformed extraction window checkpoint.');
+    }
+    if (value.offset !== undefined && (!Number.isInteger(value.offset) || value.offset < 0
+      || !Number.isInteger(value.offsetSeq) || value.offsetSeq! <= value.boundary
+      || typeof value.offsetHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.offsetHash))) {
+      throw new MemoryError('INVALID_CHECKPOINT', 'Malformed extraction fragment checkpoint.');
+    }
     return value;
   }
   async saveCheckpoint(project: ProjectIdentity | undefined, session: string, checkpoint: Checkpoint): Promise<void> {
@@ -294,6 +362,8 @@ export class MemoryStore {
     await withDirectoryLock(directory, async () => {
       const prior = await this.checkpoint(project, session);
       if (prior.boundary > checkpoint.boundary) return;
+      if (prior.boundary === checkpoint.boundary && prior.offsetSeq === checkpoint.offsetSeq
+        && (prior.offset ?? 0) > (checkpoint.offset ?? 0)) return;
       await atomicMarkdown(path, markdown(checkpoint, '# Extraction checkpoint'));
     });
   }

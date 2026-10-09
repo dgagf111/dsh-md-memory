@@ -70,12 +70,15 @@ export const EXTRACTION_POLICY: string = `你是一个后台记忆提取任务�
 规则：
 - scope 为 user 或 project；type 为 user、feedback、project 或 reference。
 - 每次最多 5 个操作，越少越好。新窗口里没有值得长期保留的内容时，{"operations":[]} 是合法且预期的结果。
+- newMessages 可能只是整轮对话的一个批次：很长的消息会被拆成 part/parts 多片。只依据本批给你的内容提取，不要臆测未提供的部分，也不要在正文里提到分批或分片这个机制本身。
+- existingMemories 里 status 为 disabled 的条目已停用。停用条目不得修改、不得重新启用：命中停用条目时返回空操作，把是否恢复留给用户。
 - 只依据给你的新对话窗口与已有条目清单判断。绝不编造事实，也绝不把条目清单本身当作新信息。
 - 提取：明确的纠正、长期偏好、无法从代码推导出的项目决定，以及外部资源指针。
 - 排除：闲聊、推测、原始工具输出、临时任务进度、凭据，以及 AGENTS.md、文档或代码里已经写明的内容。
 - 默认 project 作用域。只有当用户明确表示某偏好跨项目通用时才用 user 作用域。
-- 先更新再新建：只要有候选覆盖该操作的主题——哪怕只是部分覆盖，哪怕标题、标签或文件名不同——就返回该条目的更新，而不是新条目。把 name 设为该条目的 name，并原样带上清单里列给它的 expectedRevision 与 expectedHash。同一对象的细化或反证就是这次更新；保留该候选仍然有效的事实。
-- 如果没有任何候选覆盖该主题，就新建条目——这正是真正的新信息应有的结果。如果某主题明显已有宿主、而该宿主不在候选清单里，不要为它新建平行条目：为该主题返回空操作，把更新留给主 Agent 的工具（候选清单可能不完整，用 existingTotal/existingShown 判断覆盖度）。
+- 先更新再新建：只要有候选覆盖该操作的主题——哪怕只是部分覆盖，哪怕标题、标签或文件名不同——就返回该条目的更新，而不是新条目。把 name 设为该条目的 name，把清单中该条目的 revision 原样写为 expectedRevision，把 hash 原样写为 expectedHash。同一对象的细化或反证就是这次更新；保留该候选仍然有效的事实。
+- expectedRevision 与 expectedHash 必须分别原样抄清单里的 revision 与 hash，绝不猜测或编造。清单里的已有条目缺少 revision/hash、或 status 为 disabled 时，不要更新它。某条操作因版本冲突、已停用或已遗忘被拒绝时会如实记录，不影响同批其它操作。
+- 如果没有任何候选覆盖该主题，就新建条目——这正是真正的新信息应有的结果。如果某主题明显已有宿主、而该宿主不在候选清单里，不要为它新建平行条目：为该主题返回空操作，把更新留给主 Agent 的工具（候选清单可能不完整，用 existingTotal/existingShown/existingDisabled 判断覆盖度，停用的条目也算已有宿主）。
 - 不要返回 forget 操作。显式遗忘由主 Agent 的 md_memory_forget 工具在同一用户轮完成；后台提取永远不推翻墓碑。
 - 用用户自己的语言写 title、description 与 body，并保持一条主题一条目、被改动的事实带日期与原因。
 - 不要添加 source、session、turn、revision、hash、id、provider、model 或 route 字段：来源与路由由代码负责。`;

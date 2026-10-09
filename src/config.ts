@@ -11,7 +11,7 @@ export interface PluginConfig {
 }
 export const Config: Schema<Partial<PluginConfig>, PluginConfig> = Schema.object({
   memoryDir: Schema.string().default('').description('Markdown root; defaults to $DSH_HOME/md-memory.'),
-  indexBytes: Schema.natural().min(512).max(65536).default(6144).description('Entire index context UTF-8 budget.'),
+  indexBytes: Schema.natural().min(512).max(65536).default(1024).description('Entire index context UTF-8 budget.'),
   bodyBytes: Schema.natural().min(256).max(65536).default(12288).description('On-demand body context UTF-8 budget.'),
   autoRecall: Schema.boolean().default(true).description('Recall related bodies on new input; index is always available.'),
   indexEnabled: Schema.boolean().default(true).description('Inject the short memory index.'),

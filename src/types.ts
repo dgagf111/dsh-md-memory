@@ -31,7 +31,21 @@ export interface Diagnostic { code: string; path: string; message: string; }
 export interface Snapshot { memories: Memory[]; diagnostics: Diagnostic[]; }
 export interface LogRecord { event: string; session?: string; project?: string; operation?: string; [key: string]: unknown; }
 export interface Logger { debug(record: LogRecord): void; info(record: LogRecord): void; error(record: LogRecord, error?: unknown): void; flush(): Promise<void>; }
-export interface Checkpoint { boundary: number; lastSuccess?: string; lastError?: string; }
+export interface Checkpoint {
+  boundary: number; lastSuccess?: string; lastError?: string;
+  /**
+   * Raw UTF-8 bytes of the first message after `boundary` whose content was
+   * already committed, so an oversized window resumes mid-message instead of
+   * skipping it or extracting it twice. Absent (or 0) on legacy checkpoints.
+   */
+  offset?: number;
+  /** Sequence number of the message `offset` belongs to. */
+  offsetSeq?: number;
+  /** Digest of the committed prefix; a changed window restarts instead of skipping text. */
+  offsetHash?: string;
+  /** End of a user-triggered window still being processed across batches. */
+  pendingBoundary?: number;
+}
 export class MemoryError extends Error {
   constructor(public readonly code: string, message: string, options?: ErrorOptions) { super(message, options); this.name = 'MemoryError'; }
 }

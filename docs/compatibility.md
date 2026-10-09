@@ -12,7 +12,8 @@
 - Cordis 命名导出 apply/Config/inject；包包含 dsh.bundle.patch 安装元数据。
 - `systemPrompt.section()`：固定行为纪律，关闭模板插值。
 - `systemPrompt.context()`：动态索引与正文，作为宿主可记录的上下文快照。
-- `agent/pre-step`：每次步骤前重新扫描、排名与刷新；返回原来的 next 决策。
+- `agent/inbox/claimed`：在宿主组装上下文之前捕获本次真实用户输入。
+- `system-prompt/assemble`：每次请求重新扫描、排名并更新本次组装的索引和正文；首次请求即可使用当前问题的召回。
 - `session/event` 的 `turn/end.reason.kind=completed`：提交后排队，不阻塞主循环。
 - `sessionQuery.observeSession()`：恢复时读取公开会话切片与继承边界；不依赖 deprecated 同步事件读取。
 - `tools.register(defineTool(...))`：规范 JSON 值与 Native 渲染，PTC 直接接收规范值。
@@ -25,3 +26,5 @@
 宿主测试实际组装指定版本的 Cordis、AgentLoop、LLM、Session、SystemPrompt 与 ToolRuntime，用脚本化模型验证：插件加载、模型工具写入、下一步骤上下文刷新、独立辅助调用、跨会话共享、恢复去重、fork 继承排除和子 Agent 隔离。跨项目部分另验证：未授权项目读取被拒（`PROJECT_NOT_VISIBLE`）、保存授权后活动会话立即读到、`status.visibleSources` 与 `search`/`list` 覆盖被授权项目，以及带 `project` 的写入只落在当前项目。移动部分在真实注册的管理路由上验证 user→项目与项目→user、`REVISION_CONFLICT`（409）和 `SAME_TARGET`（400）。PTC 使用真实 run_code 分发桥和测试后端验证规范输出，不验证操作系统沙箱。
 
 模型响应来自测试 adapter，不消耗用户模型额度；提示词在用户所选真实模型上的保存质量与成本需实际使用观察。断电耐久性没有单独验证。未知版本不自动扩大 peer 范围，每次扩展版本前重新执行这套矩阵。
+
+本次审查修复补充了：源/目标索引更新失败及源提交后中断的移动恢复、恢复时人工编辑冲突、用户范围授权撤销后的直接读取拒绝、两个不同问题第一次实际模型请求的正文召回、损坏项目元数据后的权限保留、超长单条与多条消息的分批提炼、Unicode 分片与失败续传、跨批次同名更新，以及停用/陈旧/遗忘提案与有效写入的隔离。

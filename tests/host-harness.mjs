@@ -205,6 +205,40 @@ try {
   const movedBack = await moveRoute({ scope: 'project', projectId: ownProjectId, name: 'move-me-rule', revision: movedMemory.revision, hash: movedMemory.hash, toScope: 'user' });
   assert.equal(movedBack.status, 200, await movedBack.clone().text());
   assert.equal((await movedBack.json()).memory.scope, 'user', 'a project memory can move back to the user scope');
+  // Explicit user-scope denial must also cover direct reads of a known name,
+  // including revocation between tool calls without a prior refresh.
+  const hidden = await ctx.mdMemory.store.write({ ...input, scope: 'user', name: 'hidden-user-rule', body: 'USER_PRIVATE_SENTINEL',
+    source: { kind: 'explicit-user', session: 'harness', turn: 0 } });
+  await execute(ctx, crossAgent, 'md_memory_read', { scope: 'user', name: hidden.name });
+  const previousSources = ctx.mdMemory.config.crossProject[ownProjectId];
+  ctx.mdMemory.config.crossProject[ownProjectId] = [];
+  const deniedUser = await ctx.tools.execute({ callId: ToolCallId('user-denied'), name: 'md_memory_read',
+    arguments: { scope: 'user', name: hidden.name }, agent: crossAgent, signal: new AbortController().signal });
+  assert.equal(deniedUser.isError, true, 'a direct read rechecks revoked user-scope access');
+  assert(JSON.stringify(deniedUser).includes('SOURCE_NOT_VISIBLE'));
+  assert.equal((await execute(ctx, crossAgent, 'md_memory_list', { scope: 'user' })).entries.length, 0);
+  assert.equal((await execute(ctx, crossAgent, 'md_memory_search', { query: 'USER_PRIVATE_SENTINEL' })).entries.length, 0);
+  ctx.mdMemory.config.crossProject[ownProjectId] = previousSources;
+  await ctx.mdMemory.store.forget('user', hidden.name);
+
+  // Check the actual first model request, not only the post-step runtime state.
+  const recallProject = await ctx.mdMemory.store.project(ownProjectId);
+  const seedRecall = (name, word, body) => ctx.mdMemory.store.write({ ...input, name, title: word, description: word, body,
+    source: { kind: 'explicit-user', session: 'harness', turn: 0 } }, recallProject);
+  await seedRecall('first-recall-rule', 'ZXQNEEDLE', 'FIRST_RECALL_BODY_SENTINEL');
+  await seedRecall('second-recall-rule', 'PQRNEWQUERY', 'SECOND_RECALL_BODY_SENTINEL');
+  const recallHandle = await ctx.agents.create({ sessionId: SessionId('host-first-recall'), meta: { cwd: root }, agentOptions: { provider: 'mock', model: 'mock' } });
+  const extractionEnabled = ctx.mdMemory.config.autoExtract;
+  ctx.mdMemory.config.autoExtract = false;
+  for (const [query, sentinel] of [['ZXQNEEDLE', 'FIRST_RECALL_BODY_SENTINEL'], ['PQRNEWQUERY', 'SECOND_RECALL_BODY_SENTINEL']]) {
+    const start = calls.length;
+    recallHandle.agent.followup(createUserMessage({ content: [{ type: 'text', text: query }], source: { kind: 'user' } }));
+    await recallHandle.agent.whenIdle();
+    const request = calls.slice(start).find(call => !call.system?.startsWith('你是一个后台'));
+    assert(JSON.stringify(request).includes(sentinel), `the first model request for ${query} includes its recalled body`);
+  }
+  ctx.mdMemory.config.autoExtract = extractionEnabled;
+  await recallHandle.dispose();
   await cross.dispose();
   await ctx.mdMemory.logger.flush(); await disabled.ctx.mdMemory.logger.flush();
   const files = await readdir(join(root, 'memories'), { recursive: true, withFileTypes: true });

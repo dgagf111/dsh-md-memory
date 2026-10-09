@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, it, expect } from 'vitest';
-import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStore } from '../src/store.js';
@@ -9,6 +9,7 @@ import { loadSettings } from '../src/settings.js';
 import { createLogger } from '../src/logging.js';
 import { atomicMarkdown } from '../src/files.js';
 import { markdown, digest } from '../src/codec.js';
+import { resolveAccess } from '../src/access.js';
 import type { MemoryRuntime } from '../src/runtime.js';
 import type { WriteInput, ProjectIdentity } from '../src/types.js';
 let root: string, store: MemoryStore, manager: MemoryManagement;
@@ -98,4 +99,20 @@ it('prunes cross-project grants that point at missing projects and reports them'
   const content = await readFile(join(root, 'SETTINGS.md'), 'utf8');
   expect(content).not.toContain('ghost-1111111111111111');
   expect(content).not.toContain('recallUser');
+});
+it('preserves unreadable project restrictions and grants when saving unrelated settings', async () => {
+  const alpha: ProjectIdentity = { id: 'alpha-aaaaaaaaaaaaaaaa', cwd: 'C:/alpha', root: 'C:/alpha', kind: 'directory' };
+  const beta: ProjectIdentity = { id: 'beta-bbbbbbbbbbbbbbbb', cwd: 'C:/beta', root: 'C:/beta', kind: 'directory' };
+  await store.initializeProject(alpha); await store.initializeProject(beta);
+  let view = await manager.settings();
+  view = await manager.updateSettings({ ...view.values, crossProject: { [alpha.id]: [], [beta.id]: [alpha.id] } }, view.hash);
+  await writeFile(join(store.directory('project', alpha), 'PROJECT.md'), 'broken metadata');
+  // Old clients omitted cards whose metadata could not be loaded.
+  const saved = await manager.updateSettings({ ...view.values, debug: false, crossProject: { [beta.id]: [alpha.id] } }, view.hash);
+  expect(saved.values.crossProject).toEqual({ [alpha.id]: [], [beta.id]: [alpha.id] });
+  expect(saved.stale).not.toContain(alpha.id);
+  expect(resolveAccess(alpha, [beta], saved.values.crossProject).user).toBe(false);
+  await writeFile(join(store.directory('project', alpha), 'PROJECT.md'), markdown(alpha, '# Repaired project'));
+  const reloaded = await loadSettings(Config({ memoryDir: root }));
+  expect(resolveAccess(beta, [alpha, beta], reloaded.crossProject).granted).toEqual([alpha]);
 });

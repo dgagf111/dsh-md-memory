@@ -55,11 +55,22 @@ export class MemoryManagement {
     if (!config.autoExtract) this.runtime.scheduler.cancelQueued();
   }
   async updateSettings(values: unknown, hash: string) {
-    const known = (await this.runtime.store.projects()).projects;
+    const registry = await this.runtime.store.projects();
     const input = values && typeof values === 'object' && !Array.isArray(values) ? { ...(values as Record<string, unknown>) } : values;
     let stale: string[] = [];
     if (input && typeof input === 'object' && !Array.isArray(input)) {
-      const normalized = normalizeMatrix((input as Record<string, unknown>).crossProject, known);
+      const rawMatrix = (input as Record<string, unknown>).crossProject ?? this.runtime.config.crossProject;
+      const preserved = rawMatrix && typeof rawMatrix === 'object' && !Array.isArray(rawMatrix) ? { ...rawMatrix } : rawMatrix;
+      // A client may only have rendered the valid projects. Keep the explicit
+      // restrictions of unreadable directories even when its payload omits them.
+      if (preserved && typeof preserved === 'object' && !Array.isArray(preserved)) {
+        for (const { id } of registry.invalid) {
+          if (!(id in preserved) && Object.hasOwn(this.runtime.config.crossProject, id)) {
+            (preserved as Record<string, unknown>)[id] = this.runtime.config.crossProject[id];
+          }
+        }
+      }
+      const normalized = normalizeMatrix(preserved, registry.projects, registry.invalid.map(project => project.id));
       stale = normalized.stale;
       (input as Record<string, unknown>).crossProject = normalized.matrix;
     }

@@ -50,7 +50,7 @@ E:\project\dsh-md-memory\release\dsh-md-memory-0.5.0.tgz
 | 配置 | 默认 | 作用 |
 |---|---:|---|
 | memoryDir | 空 | `$DSH_HOME/md-memory`；没有 DSH_HOME 时为 `~/.dsh/md-memory` |
-| indexBytes | 6144 | 索引上下文 UTF-8 总预算，包括标题和读取提示 |
+| indexBytes | 1024 | 索引上下文 UTF-8 总预算，包括标题和读取提示 |
 | bodyBytes | 12288 | 正文上下文 UTF-8 总预算，包括条目标题和截断提示 |
 | indexEnabled | true | 是否注入短索引 |
 | recallProject | true | 当前项目是否参与索引与自动正文召回 |
@@ -112,6 +112,7 @@ md-memory/
     forgotten/ ...
     state/ ...
   logs/<YYYY-MM-DD>-<pid>.md
+  moves/<operation>.md  # 仅在跨范围移动尚未完成时存在
 ```
 
 可以直接编辑主题 `.md` 的正文、description、tags、aliases 和 paths。下一次模型步骤会重新读取文件；已有写入提案必须匹配新 hash 才能提交。`MEMORY.md` 是生成索引，源数据是主题文件。人工编辑不会产生插件修订备份，请用自己的版本管理保留编辑历史。
@@ -121,5 +122,4 @@ md-memory/
 更多排障步骤见 [维护文档](docs/maintenance.md)，接口与验证范围见 [兼容性说明](docs/compatibility.md)，提示词来源及融合原则见 [提示词说明](docs/prompts.md)。原始调研与审核规划保留在工作区根目录。
 
 采用确定性关键词、中文分词与声明式路径相关性；没有向量库、闲时整合或团队同步。
-
 

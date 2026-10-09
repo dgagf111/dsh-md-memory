@@ -3,7 +3,7 @@
 - id: md-memory
   config:
     memoryDir: 'C:/Users/89123/.dsh/md-memory'
-    indexBytes: 6144
+    indexBytes: 1024
     bodyBytes: 12288
     autoRecall: true
     autoExtract: true

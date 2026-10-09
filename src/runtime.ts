@@ -21,7 +21,7 @@ import { MemoryError, type Memory, type ProjectIdentity, type RetrievalQuery, ty
 interface AgentState {
   project?: ProjectIdentity; query: RetrievalQuery; snapshot: Snapshot;
   index?: IndexResult; bodies: string; turn: number; messages: ExtractionMessage[]; error?: string;
-  access?: ResolvedAccess; handles: Record<string, string>;
+  access?: ResolvedAccess; handles: Record<string, string>; claimedInputs: string[];
 }
 const output = { schema: { type: 'json' } as const,
   render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }] };
@@ -61,7 +61,7 @@ export class MemoryRuntime {
     if (this.initializing.has(id)) return this.initializing.get(id)!;
     if (this.states.has(id)) return this.states.get(id)!;
     const promise = (async () => {
-      const state: AgentState = { query: { current: '', recent: [], touchedPaths: [] }, snapshot: { memories: [], diagnostics: [] }, bodies: '', turn: 0, messages: [], handles: {} };
+      const state: AgentState = { query: { current: '', recent: [], touchedPaths: [] }, snapshot: { memories: [], diagnostics: [] }, bodies: '', turn: 0, messages: [], handles: {}, claimedInputs: [] };
       this.states.set(id, state);
       try {
         if (agent.session.header.cwd) {
@@ -206,17 +206,29 @@ export class MemoryRuntime {
     ctx.systemPrompt.context({ name: 'md-memory-bodies', order: 851, text: c => this.context(c, 'body') });
     ctx.on('agent/created', async ({ agent }) => { if (rootAgent(agent)) await this.initialize(agent); });
     ctx.on('agent/disposed', ({ agent }) => { this.states.delete(agent.session.id); });
-    ctx.on('agent/pre-step', async (payload, next) => {
-      if (!rootAgent(payload.agent)) return next();
-      const state = await this.initialize(payload.agent);
-      const current = payload.messages.filter(m => m.source.kind === 'user').map(text).filter(Boolean).join('\n');
+    // The host claims inbox input before prompt assembly; pre-step is too late
+    // to change the snapshot that the same request will send to the model.
+    ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
+      if (!rootAgent(agent)) return;
+      const state = this.states.get(agent.session.id);
+      if (!state) return;
+      state.turn = turn;
+      if (message.source.kind === 'user' && text(message)) state.claimedInputs.push(text(message));
+    });
+    ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+      if (!context.agent || !rootAgent(context.agent)) return next();
+      const state = await this.initialize(context.agent);
+      const current = state.claimedInputs.splice(0).join('\n');
       if (current) {
         if (state.query.current) state.query.recent = [...state.query.recent, state.query.current].slice(-2);
         state.query.current = current;
       }
-      state.turn = payload.turn;
-      try { payload.signal.throwIfAborted(); await this.refresh(payload.agent, state); }
-      catch (error) { this.failed(payload.agent.session.id, state, error); }
+      try { context.signal?.throwIfAborted(); await this.refresh(context.agent, state); }
+      catch (error) { this.failed(context.agent.session.id, state, error); }
+      for (const section of assembly.contexts) {
+        if (section.name === 'md-memory-index') section.text = this.context(context, 'index');
+        if (section.name === 'md-memory-bodies') section.text = this.context(context, 'body');
+      }
       return next();
     });
     ctx.on('session/event', (session: Session, event) => {
@@ -274,8 +286,10 @@ export class MemoryRuntime {
       } }));
     register(defineTool({ name: 'md_memory_read', description: '读取一条记忆的完整内容。只有读取授权项目中形如 project/<handle>/<name>.md 的条目时才传 project。返回的 revision 与 hash 是更新它时必需的；正文里的互链（双中括号写法）会在 related 里给出每个目标是否存在——exists=false 就是已被改名或忘记的坏链接，顺手改掉它；正文只是在讲这个写法本身时会误报，忽略即可，行内代码与代码块里的写法不算链接。', parameters: { scope, name, project: projectRef }, output,
       execute: async (args, exec) => {
-        const { state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
+        const { agent, state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
+        await this.refresh(agent, state);
         if (args.scope === 'user' && args.project !== undefined) throw new MemoryError('INVALID_INPUT', 'The user scope has no project.');
+        if (args.scope === 'user' && !state.access?.user) throw new MemoryError('SOURCE_NOT_VISIBLE', 'User memory is not granted to this session. Enable it in the memory page under 配置 → 召回 → 跨项目访问.');
         const target = args.scope === 'user' ? undefined : this.readTarget(state, args.project);
         const m = await this.store.read(args.scope, args.name, target);
         const links = this.links(state, m);
@@ -319,12 +333,14 @@ export class MemoryRuntime {
     register(defineTool({ name: 'md_memory_status', description: '查看工作区绑定、可读记忆块、预算、无效文件、后台提取与错误。', parameters: {}, output,
       execute: async (_args, exec) => {
         const { agent, state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
+        const { skipped, ...extraction } = this.scheduler.status(agent.session.id);
         const visibleSources: VisibleSource[] = [];
         if (state.access ? state.access.user : true) visibleSources.push({ id: USER_SOURCE, label: '用户记忆', kind: 'user' });
         if (state.project) visibleSources.push({ id: state.project.id, label: state.handles[state.project.id] ?? state.project.id, kind: 'own' });
         for (const granted of state.access?.granted ?? []) visibleSources.push({ id: granted.id, label: state.handles[granted.id] ?? granted.id, kind: 'granted' });
         return { root: this.store.root, project: state.project ? { ...state.project } : null, visibleSources, index: state.index ? { ...state.index } : null,
-          diagnostics: state.snapshot.diagnostics.map(d => ({ ...d })), contextError: state.error ?? null, extraction: { ...this.scheduler.status(agent.session.id) },
+          diagnostics: state.snapshot.diagnostics.map(d => ({ ...d })), contextError: state.error ?? null,
+          extraction: { ...extraction, ...(skipped ? { skipped: skipped.map(item => ({ ...item })) } : {}) },
           autoExtract: this.config.autoExtract && (this.config.enableInHeadless || !headless()), autoRecall: this.config.autoRecall };
       } }));
   }

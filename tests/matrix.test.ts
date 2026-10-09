@@ -5,7 +5,7 @@ import type { SettingsValues } from '../src/client/api.js';
 
 const group = (id: string, label = id): Group => ({ id, scope: 'project', label, entries: [], diagnostics: [] });
 const values = (crossProject: Record<string, string[]>): SettingsValues => ({ crossProject } as unknown as SettingsValues);
-const legacyValues = (extra: Record<string, unknown> = {}): SettingsValues => ({ indexBytes: 6144, recallUser: true, ...extra } as unknown as SettingsValues);
+const legacyValues = (extra: Record<string, unknown> = {}): SettingsValues => ({ indexBytes: 1024, recallUser: true, ...extra } as unknown as SettingsValues);
 
 describe('matrixPayload', () => {
   it('materialises every known project, defaulting to the user scope', () => {
@@ -17,8 +17,8 @@ describe('matrixPayload', () => {
     expect(saved).toEqual({ 'alpha-1': ['beta-2'], 'beta-2': [], 'gamma-3': ['user'] });
   });
 
-  it('drops grants for projects that no longer exist', () => {
-    expect(matrixPayload(values({ 'gone-9': ['user'] }), [group('alpha-1')])).toEqual({ 'alpha-1': ['user'] });
+  it('preserves unlisted project grants for the server to distinguish broken metadata from missing projects', () => {
+    expect(matrixPayload(values({ 'gone-9': [] }), [group('alpha-1')])).toEqual({ 'gone-9': [], 'alpha-1': ['user'] });
   });
 
   it('never wipes the matrix when the project list failed to load', () => {
@@ -46,7 +46,7 @@ describe('host capability', () => {
     expect('crossProject' in payload).toBe(false);
     expect(payload).toBe(legacy);
     // The rest of the settings must still be submittable in that window.
-    expect(payload.indexBytes).toBe(6144);
+    expect(payload.indexBytes).toBe(1024);
   });
 
   it('materialises the matrix when the host understands grants', () => {

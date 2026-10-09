@@ -48,7 +48,7 @@ describe('loadSettingsWithMigration', () => {
 
   it('defaults to the user scope when no file exists and keeps loadSettings working', async () => {
     expect((await loadSettingsWithMigration(base())).legacySources).toEqual([...DEFAULT_SOURCES]);
-    expect((await loadSettings(base())).indexBytes).toBe(6144);
+    expect((await loadSettings(base())).indexBytes).toBe(1024);
   });
 });
 
