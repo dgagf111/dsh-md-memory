@@ -16,7 +16,7 @@ export const MEMORY_POLICY: string = `你有跨会话存活的持久 Markdown �
 
 工具（必须使用这些确切的名称）：
 - md_memory_search：按关键词检索整个记忆库并返回候选条目。
-- md_memory_read：按 scope 与 name 读取一条记忆的完整正文，例如 scope="project", name="decisions-about-memory" 读的是 project/decisions-about-memory.md。
+- md_memory_read：按 scope 与 name 读取一条记忆的完整正文，例如 scope="project", name="decisions-about-memory" 读的是 project/decisions-about-memory.md；返回的 related 会解析正文里的 [[name]] 互链，exists=false 表示目标已被改名或忘记，顺手把那条链接改掉。
 - md_memory_write：新建或更新一条记忆，返回提交后的 revision 与 hash。
 - md_memory_forget：删除一条记忆。仅在用户明确要求时使用。
 - md_memory_list：列出 user 与 project 作用域中的条目。

@@ -106,6 +106,15 @@ try {
   const read = await execute(ctx, agent, 'md_memory_read', { scope: 'project', name: 'manual-rule' });
   assert.equal(read.revision, 1);
   await execute(ctx, agent, 'md_memory_write', { ...input, body: '更新：仅 Markdown 文件持久化。', expectedRevision: read.revision, expectedHash: read.hash });
+  await execute(ctx, agent, 'md_memory_write', { scope: 'project', name: 'link-owner', title: '带互链的条目', description: '验证 [[name]] 的解析结果', type: 'project', body: '见 [[manual-rule]]，以及一条已经不存在的 [[ghost-entry]]。' });
+  const linked = await execute(ctx, agent, 'md_memory_read', { scope: 'project', name: 'link-owner' });
+  assert.deepEqual(linked.related.map(link => [link.name, link.exists]), [['manual-rule', true], ['ghost-entry', false]], 'read resolves the [[name]] links of the body');
+  assert.equal(linked.related[0].scope, 'project');
+  assert.equal(typeof linked.related[0].project, 'string', 'a live link names the block its target lives in');
+  assert.equal(linked.related[0].description.includes('持久化'), true, 'a live link carries a short description hint');
+  assert.equal(linked.related[1].project, undefined, 'a dead link carries no block');
+  assert.equal(linked.omitted, 0);
+  await execute(ctx, agent, 'md_memory_forget', { scope: 'project', name: 'link-owner', userRequested: true });
   const originalRefresh = ctx.mdMemory.refresh;
   ctx.mdMemory.refresh = async () => { throw new Error('simulated context refresh failure'); };
   const savedWithWarning = await execute(ctx, agent, 'md_memory_write', { ...input, name: 'refresh-warning-rule' });

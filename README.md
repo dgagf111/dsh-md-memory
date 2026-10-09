@@ -73,7 +73,7 @@ E:\project\dsh-md-memory\release\dsh-md-memory-0.5.0.tgz
 | 工具 | 输入要点 | 输出 |
 |---|---|---|
 | md_memory_search | query、可选 limit | 全部可读来源的相关候选，每条带 `project` |
-| md_memory_read | scope、name、可选 project | 完整正文、revision、hash |
+| md_memory_read | scope、name、可选 project | 完整正文、revision、hash，以及正文里 `[[name]]` 互链的解析结果 `related`（`exists=false` 即已被改名或忘记的坏链接，`omitted` 是超出上限没列出的条数） |
 | md_memory_write | scope、name、title、description、type、body | committed、revision、hash；更新要带 expectedRevision 和 expectedHash |
 | md_memory_forget | scope、name、userRequested=true | 删除正文和修订后的提交结果 |
 | md_memory_list | 可选 scope、可选 project | 短条目列表，每条带 `project` |

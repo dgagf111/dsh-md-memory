@@ -37,6 +37,12 @@
 
 后台提示词同步收紧：任何候选拥有该主题就必须返回该条目的更新（即使标题不同）；宿主不在候选清单里时不得为该主题新建条目，返回空操作交给主 Agent。
 
+## 互链：`[[name]]` 是写法约定，不存储关系
+
+`[[name]]`（指向另一条条目的 kebab-case name）沿用 Claude Code / ZCode 家族的写法，作用是让读正文的模型知道“还能去哪看”，从而不必复制正文、避免同一主题再长出第二条条目。它**不是**图关系：没有代码存储、渲染或自动展开它，桌面记忆页的正文框里就是纯文本，链接失效原本是静默的。
+
+0.5.2 起 `md_memory_read` 把正文里的互链解析成 `related`：每条给出 `name`、`exists`、命中作用块的 `scope`/`project`，以及 120 字符以内的 `description` 提示；最多 20 条，其余数量计入 `omitted`。`exists=false` 就是已被改名或忘记的坏链接，模型读到后应顺手改掉。同名条目存在于多个可读块时，取最近的那个（本条目所在块 → 当前项目 → 用户作用域 → 被授权项目）并标 `ambiguous`。实现是纯函数 `src/links.ts`，单测 `tests/links.test.ts`，宿主回归在 `tests/host-harness.mjs`。
+
 ## 依据
 
 - [ZCode 源码](https://github.com/zai-org/ZCode/tree/29628c9acdb81b703bbd4080c207a0e7ce5e276e)：核对过 memory 系统提示、extraction 与成功轮调度；完整路径与片段见工作区调研报告。

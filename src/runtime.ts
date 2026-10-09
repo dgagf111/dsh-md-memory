@@ -11,6 +11,7 @@ import { MemoryStore } from './store.js';
 import { resolveProject } from './project.js';
 import { DEFAULT_SOURCES, USER_SOURCE, handleMap, matchProject, resolveAccess, type ResolvedAccess } from './access.js';
 import { rankMemories, renderIndex, renderBodies, escapeContext, type SourceContext } from './retrieval.js';
+import { extractLinks, resolveLinks, type RelatedLink } from './links.js';
 import { MEMORY_POLICY } from './prompts.js';
 import { ExtractionScheduler, type ExtractionMessage } from './extraction.js';
 import { createCompletion } from './completion.js';
@@ -135,6 +136,22 @@ export class MemoryRuntime {
     if (memory.scope === 'user') return null;
     return { id: memory.sourceKey, label: state.handles[memory.sourceKey] ?? memory.sourceKey };
   }
+  /**
+   * Resolves the [[name]] links of one body against every readable block. Links
+   * are a convention, not a stored relation, so a target that was renamed or
+   * forgotten is reported as exists:false instead of dead-ending silently. The
+   * snapshot is refreshed after every write, forget and step, so a link to an
+   * entry committed moments ago already resolves.
+   */
+  private links(state: AgentState, memory: Memory): { related?: RelatedLink[]; omitted?: number } {
+    const names = extractLinks(memory.body);
+    if (names.length === 0) return {};
+    const candidates = state.snapshot.memories.filter(candidate => this.visible(state, candidate, false));
+    const own = state.project?.id;
+    const rank = (candidate: Memory) => candidate.sourceKey === memory.sourceKey ? 0 : candidate.sourceKey === own ? 1 : candidate.scope === 'user' ? 2 : 3;
+    const locate = (candidate: Memory) => { const info = this.projectInfo(state, candidate); return info ? { project: info.label } : {}; };
+    return resolveLinks(names, candidates, rank, locate);
+  }
   /** Resolves an optional project reference against the readable projects only. */
   private readTarget(state: AgentState, reference: unknown): ProjectIdentity | undefined {
     if (reference === undefined || reference === null || reference === '') return state.project;
@@ -255,13 +272,14 @@ export class MemoryRuntime {
         this.logger.info({ event: 'memory.search', session: agent.session.id, matches: ranked.length });
         return { total: ranked.length, entries: ranked.slice(0, limit).map(r => ({ scope: r.memory.scope, name: r.memory.name, title: r.memory.title, description: r.memory.description, score: r.score, project: this.projectInfo(state, r.memory) })) };
       } }));
-    register(defineTool({ name: 'md_memory_read', description: '读取一条记忆的完整内容。只有读取授权项目中形如 project/<handle>/<name>.md 的条目时才传 project。返回的 revision 与 hash 是更新它时必需的。', parameters: { scope, name, project: projectRef }, output,
+    register(defineTool({ name: 'md_memory_read', description: '读取一条记忆的完整内容。只有读取授权项目中形如 project/<handle>/<name>.md 的条目时才传 project。返回的 revision 与 hash 是更新它时必需的；正文里的 [[name]] 互链会在 related 里给出每个目标是否存在——exists=false 就是已被改名或忘记的坏链接，顺手改掉它。', parameters: { scope, name, project: projectRef }, output,
       execute: async (args, exec) => {
         const { state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
         if (args.scope === 'user' && args.project !== undefined) throw new MemoryError('INVALID_INPUT', 'The user scope has no project.');
         const target = args.scope === 'user' ? undefined : this.readTarget(state, args.project);
         const m = await this.store.read(args.scope, args.name, target);
-        return { scope: m.scope, name: m.name, title: m.title, description: m.description, type: m.type, body: m.body, tags: m.tags, aliases: m.aliases, paths: m.paths, revision: m.revision, hash: m.hash, source: { ...m.source } };
+        const links = this.links(state, m);
+        return { scope: m.scope, name: m.name, title: m.title, description: m.description, type: m.type, body: m.body, tags: m.tags, aliases: m.aliases, paths: m.paths, revision: m.revision, hash: m.hash, source: { ...m.source }, ...links };
       } }));
     register(defineTool({ name: 'md_memory_write', description: '立即提交一条长期记忆。先检索并读取所有覆盖同一主题的条目：只要存在（哪怕只是部分覆盖、哪怕已经过时）就更新它，不要另建平行条目；只有没有任何条目覆盖该主题时才新建。更新已有条目必须提供当前的 expectedRevision 与 expectedHash。',
       parameters: { scope, name, title: { type: 'string', required: true }, description: { type: 'string', required: true },
