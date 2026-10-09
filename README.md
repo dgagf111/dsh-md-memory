@@ -13,22 +13,28 @@ DeepSeek Harness 的 Markdown 记忆插件。用户偏好、项目约定、索�
 - 项目跟随 **DSH 会话 header.cwd**。同一 Git 仓库的子目录和 worktree 共享记忆；独立 clone 分开；非 Git 项目按工作目录真实路径分开。
 - 错误通过工具结果、状态工具和日志暴露。冲突不会自动覆盖，损坏文件不会自动改写，死进程留下的写锁需要检查后清理。
 
-## 构建与安装
+## 安装
 
-构建需要 Node.js 22.12 或以上，以及 Git。
+插件尚未发布到 npm，直接从 GitHub 安装即可。构建需要 Node.js 22.12 或以上（安装时由 `prepare` 自动完成，无需手动构建）。
+
+**命令行 profile**（`web` / `headless` 等）：
+
+```powershell
+dsh plugin --profile <profile> add github:dgagf111/dsh-md-memory
+```
+
+**DSH Desktop（Electron 桌面端）**：`desktop` profile 由桌面应用独占管理，`dsh plugin --profile desktop …` 会被拒绝。请在桌面端**插件市场**里安装，或把下面 `npm pack` 产出的 `.tgz` 交给插件管理界面安装。
+
+`github:` 形式会拉取仓库并运行 `prepare` 构建 `lib/`；装好后**重启 DSH**，侧边栏即出现“记忆”入口。升级用同一个 `add` 命令重跑。
+
+从源码构建与自测：
 
 ```powershell
 npm ci
-npm run check
-npm run test:host
-npm run test:compat
-npm pack
-```
-
-在 DSH 当前 profile 的插件管理中安装本地包，例如：
-
-```text
-E:\project\dsh-md-memory\release\dsh-md-memory-0.5.0.tgz
+npm run check        # typecheck + 单测 + 构建
+npm run test:host    # 真实宿主契约
+npm run test:compat  # RC 与 Alpha 双版本
+npm pack             # 产出 release/dsh-md-memory-<版本>.tgz
 ```
 
 宿主侧代码（`lib/index.js`）只在进程启动时加载，升级后需要重启 DSH；只有客户端界面改动可以靠刷新记忆页面生效。
@@ -50,12 +56,12 @@ E:\project\dsh-md-memory\release\dsh-md-memory-0.5.0.tgz
 | 配置 | 默认 | 作用 |
 |---|---:|---|
 | memoryDir | 空 | `$DSH_HOME/md-memory`；没有 DSH_HOME 时为 `~/.dsh/md-memory` |
-| indexBytes | 1024 | 索引上下文 UTF-8 总预算，包括标题和读取提示 |
-| bodyBytes | 12288 | 正文上下文 UTF-8 总预算，包括条目标题和截断提示 |
+| indexBytes | 1024 | 自动注入的短索引 UTF-8 总预算，包括标题和读取提示 |
+| bodyBytes | 12288 | 自动注入的正文 UTF-8 总预算，包括条目标题和截断提示 |
 | indexEnabled | true | 是否注入短索引 |
 | recallProject | true | 当前项目是否参与索引与自动正文召回 |
 | crossProject | {} | 逐项目的读取授权：`{项目id: [user 和/或其他项目id]}`，缺省只读自己与 user |
-| bodyLimit | 5 | 每次自动正文召回的条目数量上限 |
+| bodyLimit | 5 | 自动注入的正文条目数量上限 |
 | autoRecall | true | 根据当轮需求自动带入相关正文；关闭后仍注入短索引 |
 | autoExtract | true | 成功轮结束后后台提炼 |
 | extractionProvider / extractionModel | 空 | 沿用会话有效模型路由；可明确指定辅助模型 |

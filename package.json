@@ -5,6 +5,22 @@
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dgagf111/dsh-md-memory.git"
+  },
+  "homepage": "https://github.com/dgagf111/dsh-md-memory#readme",
+  "bugs": {
+    "url": "https://github.com/dgagf111/dsh-md-memory/issues"
+  },
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "markdown"
+  ],
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -35,6 +51,7 @@
     "check": "npm run typecheck && npm test && npm run build",
     "test:compat": "node scripts/compat.mjs",
     "prepack": "npm run build",
+    "prepare": "npm run build",
     "test:host": "npm run build && node tests/host-harness.mjs"
   },
   "engines": {

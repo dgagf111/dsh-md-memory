@@ -57,7 +57,8 @@ export function Settings({ view, values, setValues, save, reset, busy, dirty, pr
       {toggle('indexEnabled', '注入短索引', '放得下时完整注入；超出预算时按相关性排序并持续填充。')}
       {toggle('autoRecall', '自动召回相关正文', '根据当前问题、最近两轮输入和触及的文件匹配。关闭后仍可由 Agent 主动检索。')}
       {toggle('recallProject', '包含当前项目记忆', '控制当前会话工作区自己的记忆；其他项目由下方「跨项目访问」单独授权。')}
-      <div className="mm-numbers">{number('indexBytes', '短索引预算', 'UTF-8 容量，1 KiB = 1024 字节', 512, 65536, 'KiB', 1024)}{number('bodyBytes', '正文预算', '每次请求的正文总容量', 256, 65536, 'KiB', 1024)}{number('bodyLimit', '正文条目上限', '每次自动召回的最多条目数', 1, 20, '条')}</div>
+      <div className="mm-numbers">{number('indexBytes', '自动注入的短索引预算', 'UTF-8 容量，1 KiB = 1024 字节', 512, 65536, 'KiB', 1024)}{number('bodyBytes', '自动注入的正文预算', '每次请求的正文总容量', 256, 65536, 'KiB', 1024)}{number('bodyLimit', '自动注入的正文条目上限', '每次自动召回的最多条目数', 1, 20, '条')}</div>
+      <p className="mm-note">这三项只限制每轮自动注入的上下文。Agent 主动读取时不受限制：<code>md_memory_read</code> 返回完整正文，<code>md_memory_search</code> 的返回条数由它自己的 limit 参数决定（默认 10，最大 100）。</p>
       <div className="mm-access">
         <div className="mm-access-heading"><div><h3>跨项目访问</h3><p>这里配置的是「在某个项目的会话里，除了它自己，还能读到哪些记忆」。授权是单向的，且只授予读取；被授权项目的记忆最多占用上下文预算的一半。</p>{!grantsSupported && <p className="mm-access-locked" role="status">当前运行的宿主仍是旧版本，勾选暂时不可保存：重启 DSH 后即可配置。</p>}</div>{projects.length > 6 && <label className="mm-search mm-access-filter"><Icon name="search"/><input aria-label="过滤项目" value={filter} placeholder="过滤项目…" disabled={busy} onChange={event => setFilter(event.target.value)}/></label>}</div>
         {projects.length === 0

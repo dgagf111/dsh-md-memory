@@ -139,14 +139,14 @@ try {
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: '配置', exact: true }).click();
   await page.getByLabel('自动召回相关正文').uncheck();
-  await page.getByLabel('短索引预算').fill('8');
+  await page.getByLabel('自动注入的短索引预算').fill('8');
   await page.getByRole('button', { name: '记忆写入', exact: true }).click();
   await page.getByLabel('请求超时').fill('30.001');
   await page.getByRole('button', { name: '维护', exact: true }).click();
   await page.getByLabel('详细日志').uncheck();
   await page.getByRole('button', { name: '召回', exact: true }).click();
   await page.getByRole('button', { name: '保存配置', exact: true }).click();
-  assert(await page.getByLabel('短索引预算').isDisabled(), 'Settings stay writable while saving');
+  assert(await page.getByLabel('自动注入的短索引预算').isDisabled(), 'Settings stay writable while saving');
   await page.getByRole('status').filter({ hasText: '配置已保存并生效' }).waitFor();
   assert(runtime.config.indexBytes === 8192 && !runtime.config.autoRecall, 'UI settings not applied');
   assert(runtime.config.extractionTimeoutMs === 30001 && !runtime.config.debug, 'Cross-category settings or unit conversion changed semantics');
