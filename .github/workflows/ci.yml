@@ -11,6 +11,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # lib/ is committed so git/pnpm installs need no build; a stale artifact
+      # would ship different code than src/.
+      - run: git diff --exit-code -- lib
       - run: node tests/host-harness.mjs
       - run: npm run test:compat
       - run: npm pack --dry-run

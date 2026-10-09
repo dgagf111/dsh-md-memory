@@ -15,17 +15,24 @@ DeepSeek Harness 的 Markdown 记忆插件。用户偏好、项目约定、索�
 
 ## 安装
 
-插件尚未发布到 npm，直接从 GitHub 安装即可。构建需要 Node.js 22.12 或以上（安装时由 `prepare` 自动完成，无需手动构建）。
+插件尚未发布到 npm，直接从 GitHub 安装即可。仓库已包含构建产物 `lib/`，安装时不需要任何构建步骤，也不需要 Node 之外的额外准备。
 
-**命令行 profile**（`web` / `headless` 等）：
+**命令行 profile**（`web` / `headless` / `tui` 等）：
 
 ```powershell
 dsh plugin --profile <profile> add github:dgagf111/dsh-md-memory
 ```
 
-**DSH Desktop（Electron 桌面端）**：`desktop` profile 由桌面应用独占管理，`dsh plugin --profile desktop …` 会被拒绝。请在桌面端**插件市场**里安装，或把下面 `npm pack` 产出的 `.tgz` 交给插件管理界面安装。
+**DSH Desktop（Electron 桌面端）**：推荐在桌面端的**插件市场**界面里安装；也可以用桌面端自带的 `dsh` 启动器执行同一条命令：
 
-`github:` 形式会拉取仓库并运行 `prepare` 构建 `lib/`；装好后**重启 DSH**，侧边栏即出现“记忆”入口。升级用同一个 `add` 命令重跑。
+```powershell
+# <安装目录>\resources\runtime\cli\bin\dsh.cmd
+dsh plugin --profile desktop add github:dgagf111/dsh-md-memory
+```
+
+注意：另装的独立 `dsh` CLI 会拒绝 desktop profile（`profile "desktop" is managed exclusively by the Electron application`），桌面端自带的启动器才被授权管理它。也可以把 `npm pack` 产出的 `.tgz` 交给插件管理界面安装。
+
+装好后**重启 DSH**，侧边栏即出现“记忆”入口。升级用同一个 `add` 命令重跑。
 
 从源码构建与自测：
 
@@ -36,6 +43,8 @@ npm run test:host    # 真实宿主契约
 npm run test:compat  # RC 与 Alpha 双版本
 npm pack             # 产出 release/dsh-md-memory-<版本>.tgz
 ```
+
+> `lib/` 是提交进仓库的构建产物，为的是让 `pnpm`/`npm` 从 Git 安装时无需执行构建脚本（pnpm 默认拦截依赖的构建脚本，只有产物在仓库里才能零配置装好）。因此**改动 `src/` 后必须重新 `npm run build` 并把 `lib/` 一起提交**；CI 会用 `git diff --exit-code -- lib` 拦住忘记提交或产物过期的改动。
 
 宿主侧代码（`lib/index.js`）只在进程启动时加载，升级后需要重启 DSH；只有客户端界面改动可以靠刷新记忆页面生效。
 

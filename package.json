@@ -51,7 +51,6 @@
     "check": "npm run typecheck && npm test && npm run build",
     "test:compat": "node scripts/compat.mjs",
     "prepack": "npm run build",
-    "prepare": "npm run build",
     "test:host": "npm run build && node tests/host-harness.mjs"
   },
   "engines": {
