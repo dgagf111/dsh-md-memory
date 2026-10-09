@@ -41,7 +41,9 @@
 
 `[[name]]`（指向另一条条目的 kebab-case name）沿用 Claude Code / ZCode 家族的写法，作用是让读正文的模型知道“还能去哪看”，从而不必复制正文、避免同一主题再长出第二条条目。它**不是**图关系：没有代码存储、渲染或自动展开它，桌面记忆页的正文框里就是纯文本，链接失效原本是静默的。
 
-0.5.2 起 `md_memory_read` 把正文里的互链解析成 `related`：每条给出 `name`、`exists`、命中作用块的 `scope`/`project`，以及 120 字符以内的 `description` 提示；最多 20 条，其余数量计入 `omitted`。`exists=false` 就是已被改名或忘记的坏链接，模型读到后应顺手改掉。同名条目存在于多个可读块时，取最近的那个（本条目所在块 → 当前项目 → 用户作用域 → 被授权项目）并标 `ambiguous`。实现是纯函数 `src/links.ts`，单测 `tests/links.test.ts`，宿主回归在 `tests/host-harness.mjs`。
+0.5.2 起 `md_memory_read` 把正文里的互链解析成 `related`：每条给出 `name`、`exists`、命中作用块的 `scope`/`project`，以及 120 字符以内的 `description` 提示；最多 20 条，其余数量计入 `omitted`。`exists=false` 就是已被改名或忘记的坏链接，模型读到后应顺手改掉。同名条目存在于多个可读块时，取最近的那个（本条目所在块 → 当前项目 → 用户作用域 → 被授权项目）并标 `ambiguous`。
+
+**行内代码与代码块里的写法不算链接**（`src/links.ts` 先剥掉 ``` 与 `` ` `` 包裹的内容再匹配），所以提示词里讲这个语法时把它放进反引号，正文才不会冒出幽灵链接；占位写法也从英文的 `name` 改成不可解析的中文名，避免"讲规则的条目"自己被解析出一条死链。实现是纯函数 `src/links.ts`，单测 `tests/links.test.ts`，宿主回归在 `tests/host-harness.mjs`。
 
 ## 依据
 

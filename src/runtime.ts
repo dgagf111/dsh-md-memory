@@ -272,7 +272,7 @@ export class MemoryRuntime {
         this.logger.info({ event: 'memory.search', session: agent.session.id, matches: ranked.length });
         return { total: ranked.length, entries: ranked.slice(0, limit).map(r => ({ scope: r.memory.scope, name: r.memory.name, title: r.memory.title, description: r.memory.description, score: r.score, project: this.projectInfo(state, r.memory) })) };
       } }));
-    register(defineTool({ name: 'md_memory_read', description: '读取一条记忆的完整内容。只有读取授权项目中形如 project/<handle>/<name>.md 的条目时才传 project。返回的 revision 与 hash 是更新它时必需的；正文里的 [[name]] 互链会在 related 里给出每个目标是否存在——exists=false 就是已被改名或忘记的坏链接，顺手改掉它。', parameters: { scope, name, project: projectRef }, output,
+    register(defineTool({ name: 'md_memory_read', description: '读取一条记忆的完整内容。只有读取授权项目中形如 project/<handle>/<name>.md 的条目时才传 project。返回的 revision 与 hash 是更新它时必需的；正文里的互链（双中括号写法）会在 related 里给出每个目标是否存在——exists=false 就是已被改名或忘记的坏链接，顺手改掉它；正文只是在讲这个写法本身时会误报，忽略即可，行内代码与代码块里的写法不算链接。', parameters: { scope, name, project: projectRef }, output,
       execute: async (args, exec) => {
         const { state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
         if (args.scope === 'user' && args.project !== undefined) throw new MemoryError('INVALID_INPUT', 'The user scope has no project.');

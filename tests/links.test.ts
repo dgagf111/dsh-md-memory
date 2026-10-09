@@ -48,6 +48,11 @@ describe('extractLinks', () => {
   it('returns nothing for a body without links', () => {
     expect(extractLinks('没有任何互链的正文。')).toEqual([]);
   });
+
+  it('ignores links written inside inline or fenced code', () => {
+    const body = '用 `[[name]]` 这种写法互链：\n\n```\n[[fenced-example]]\n```\n\n真正要链的是 [[real-entry]]。';
+    expect(extractLinks(body)).toEqual(['real-entry']);
+  });
 });
 
 describe('resolveLinks', () => {

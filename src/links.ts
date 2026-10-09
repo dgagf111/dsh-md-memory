@@ -19,14 +19,21 @@ export const LINK_DESCRIPTION_LIMIT = 120;
 
 const LINK = /\[\[([a-z0-9]+(?:-[a-z0-9]+)*)\]\]/g;
 
+/** Inline code and fenced blocks are literal text: a link written there is an example, not a link. */
+function withoutCode(body: string): string {
+  return body.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ');
+}
+
 /**
  * Unique link targets in body order. Names that cannot be a memory name and
- * repeats are dropped, so the caller never sees a target twice.
+ * repeats are dropped, so the caller never sees a target twice. Text inside
+ * inline or fenced code is ignored - that is where prose documents the syntax
+ * itself.
  */
 export function extractLinks(body: string): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
-  for (const match of body.matchAll(LINK)) {
+  for (const match of withoutCode(body).matchAll(LINK)) {
     const name = match[1]!;
     if (name.length > 64 || seen.has(name)) continue;
     seen.add(name);

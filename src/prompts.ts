@@ -16,7 +16,7 @@ export const MEMORY_POLICY: string = `你有跨会话存活的持久 Markdown �
 
 工具（必须使用这些确切的名称）：
 - md_memory_search：按关键词检索整个记忆库并返回候选条目。
-- md_memory_read：按 scope 与 name 读取一条记忆的完整正文，例如 scope="project", name="decisions-about-memory" 读的是 project/decisions-about-memory.md；返回的 related 会解析正文里的 [[name]] 互链，exists=false 表示目标已被改名或忘记，顺手把那条链接改掉。
+- md_memory_read：按 scope 与 name 读取一条记忆的完整正文，例如 scope="project", name="decisions-about-memory" 读的是 project/decisions-about-memory.md；返回的 related 解析正文里的互链，exists=false 就是坏链接（正文在讲这个写法本身时会误报，忽略即可；代码块与行内代码里的写法不算链接），真的坏链接顺手改掉。
 - md_memory_write：新建或更新一条记忆，返回提交后的 revision 与 hash。
 - md_memory_forget：删除一条记忆。仅在用户明确要求时使用。
 - md_memory_list：列出 user 与 project 作用域中的条目。
@@ -43,7 +43,7 @@ export const MEMORY_POLICY: string = `你有跨会话存活的持久 Markdown �
 新建不是默认动作，先检查才是。每次写入前：
 1. 先找是否已有宿主条目：至少两个角度检索该主题——对象与结论，例如「iPhone 控制」和「WDA 无线」——再用 md_memory_read 读所有可能命中的条目。相关条目可能用了不同的标题、标签或文件名；注入的索引按相关性排序，可能在不相干的标题下列出同主题条目。没 read 过的条目不算查过。
 2. 如果有条目覆盖该主题——哪怕只是部分覆盖，或只是旧版本已经过时——就更新它：带上它的 expectedRevision 与 expectedHash，保留仍然有效的事实，修正或补充过时的部分，并说明你更新了哪一条。同一对象的新结论、细化或反证都属于这次更新，不该另开文件。
-3. 如果没有任何条目覆盖该主题，就新建——这正是真正的新信息应有的结果。给它一个稳定的 topic tag（例如 windows-iphone-control），复用相关条目的 tags，并用 [[name]] 互链而不是复制正文。拆分要克制：一条主题超过 32000 字符正文上限时，按子主题拆开、用 [[name]] 把各部分挂回宿主条目，而不是留成互不相关的平级条目。
+3. 如果没有任何条目覆盖该主题，就新建——这正是真正的新信息应有的结果。给它一个稳定的 topic tag（例如 windows-iphone-control），复用相关条目的 tags，并用 \`[[目标条目名]]\` 互链而不是复制正文（写真实的条目标题名，别照抄这个占位写法）。拆分要克制：一条主题超过 32000 字符正文上限时，按子主题拆开、用互链把各部分挂回宿主条目，而不是留成互不相关的平级条目。
 不要因为检索用的词没命中某个标题就新建近重复，也不要在刚刚核实了当前事实之后继续留着过时条目。写工具会自动维护索引，永远不要手改 MEMORY.md。
 例子：「在这台 Windows 上控制 iPhone」是一个主题。可用工具链与约束、SideTap 部署与本地修复、无线实测边界、本机缺少 Apple 根证书，都属于这一条（若某个发现确实属于另一主题，则作为互链的独立条目），而不是四条平行的记忆。
 
