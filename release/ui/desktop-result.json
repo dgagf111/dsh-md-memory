@@ -14,7 +14,7 @@
   "enabled": {
     "index": true,
     "body": true,
-    "manualWriteOnly": false
+    "manualWriteOnly": true
   },
   "grants": 4,
   "sidebar": true,
@@ -22,6 +22,7 @@
   "editor": true,
   "move": true,
   "wipe": true,
+  "removeProject": true,
   "settings": true,
   "crossProject": true
 }
