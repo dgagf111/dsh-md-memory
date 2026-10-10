@@ -121,6 +121,25 @@ export class MemoryManagement {
     this.runtime.logger.info({ event: 'memory.reset', project: project.id, removed, warnings });
     return { removed, warnings };
   }
+  /**
+   * Removes one whole project from the memory library after the page confirmed
+   * it: its directory, `PROJECT.md` and empty index are deleted, so `groups()`
+   * stops listing it. The host refuses any project that still holds entries —
+   * the page must clear it first — and the user scope is shared, so it keeps
+   * per-entry deletion. A later session in that workspace writes a fresh,
+   * empty project through `MemoryStore.ensureIdentity`.
+   */
+  async removeProject(data: unknown) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new MemoryError('INVALID_INPUT', 'Delete-project request must be an object.');
+    const input = data as { scope?: unknown; projectId?: unknown; confirm?: unknown };
+    if (input.confirm !== true) throw new MemoryError('CONFIRMATION_REQUIRED', 'Deleting a project requires the page confirmation.');
+    if (input.scope === 'user') throw new MemoryError('USER_SCOPE_PROTECTED', 'User memory is shared across projects; delete its entries one by one instead.');
+    const project = (await this.target(input.scope, input.projectId)).project!;
+    await this.runtime.store.removeProject(project);
+    const warnings = await this.runtime.refreshAll();
+    this.runtime.logger.info({ event: 'memory.remove_project', project: project.id, warnings });
+    return { warnings };
+  }
 }
 export function registerManagement(ctx: Context, runtime: MemoryRuntime): void {
   const connection = ctx.get('connection');
@@ -132,7 +151,7 @@ export function registerManagement(ctx: Context, runtime: MemoryRuntime): void {
       catch (error) {
         const code = error instanceof MemoryError ? error.code : (error as NodeJS.ErrnoException).code ?? 'INTERNAL_ERROR';
         runtime.logger.error({ event: 'management.request_failed', route: path, code }, error);
-        const status = code === 'REVISION_CONFLICT' || code === 'NAME_CONFLICT' ? 409 : code === 'ENOENT' ? 404 : error instanceof MemoryError || error instanceof SyntaxError ? 400 : 500;
+        const status = code === 'REVISION_CONFLICT' || code === 'NAME_CONFLICT' || code === 'PROJECT_NOT_EMPTY' ? 409 : code === 'ENOENT' ? 404 : error instanceof MemoryError || error instanceof SyntaxError ? 400 : 500;
         return Response.json({ code, message: redact(error instanceof Error ? error.message : String(error)) }, { status });
       }
     } });
@@ -147,9 +166,10 @@ export function registerManagement(ctx: Context, runtime: MemoryRuntime): void {
   route('forget', ['POST'], async request => management.forget(await request.json()));
   route('move', ['POST'], async request => management.move(await request.json()));
   route('reset', ['POST'], async request => management.reset(await request.json()));
+  route('remove', ['POST'], async request => management.removeProject(await request.json()));
   route('settings', ['GET', 'POST'], async request => {
     if (request.method === 'GET') return management.settings();
     const data = await request.json(); return management.updateSettings(data.values, data.hash);
   });
-  runtime.logger.info({ event: 'management.registered', routes: 7, operations: 8 });
+  runtime.logger.info({ event: 'management.registered', routes: 8, operations: 9 });
 }

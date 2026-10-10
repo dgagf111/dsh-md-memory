@@ -47,8 +47,23 @@ try {
     await dialog.waitFor({ timeout: 15000 });
     await dialog.getByRole('button', { name: '取消', exact: true }).click();
     if (await page.getByRole('alertdialog', { name: '清空项目记忆' }).count() !== 0) throw new Error('The wipe dialog did not close on cancel');
+    // Deleting the whole project is offered next to the wipe and only unlocks
+    // once the project is empty.
+    const remove = page.getByRole('button', { name: '删除记忆项目', exact: true });
+    if (await remove.count() !== 1) throw new Error('A project scope does not offer the whole-project delete');
+    if (await remove.isDisabled()) {
+      const hint = await remove.evaluate(node => node.closest('span')?.getAttribute('title') ?? '');
+      if (!hint) throw new Error('A disabled delete-project action must explain that the scope has to be cleared first');
+    } else {
+      await remove.click();
+      const removeDialog = page.getByRole('alertdialog', { name: '删除记忆项目' });
+      await removeDialog.waitFor({ timeout: 15000 });
+      await removeDialog.getByRole('button', { name: '取消', exact: true }).click();
+      if (await page.getByRole('alertdialog', { name: '删除记忆项目' }).count() !== 0) throw new Error('The delete-project dialog did not close on cancel');
+    }
     await page.getByRole('button', { name: /用户记忆/ }).first().click();
     if (await wipe.count() !== 0) throw new Error('The shared user scope must not offer a whole-scope wipe');
+    if (await page.getByRole('button', { name: '删除记忆项目', exact: true }).count() !== 0) throw new Error('The shared user scope must not offer a whole-project delete');
     await page.screenshot({ path: 'release/ui/desktop-installed-wipe.png', fullPage: true });
   }
   await page.getByRole('button', { name: '配置', exact: true }).click();
@@ -58,7 +73,7 @@ try {
   const settings = await page.request.get(`${origin}/api/md-memory/settings`);
   if (!settings.ok()) throw new Error(`Management settings HTTP ${settings.status()}`);
   const data = await settings.json();
-  await writeFile('release/ui/desktop-result.json', JSON.stringify({ plugin: row, root: data.root, enabled: { index: data.values.indexEnabled, body: data.values.autoRecall, manualWriteOnly: !('autoExtract' in data.values) }, grants: Object.keys(data.values.crossProject ?? {}).length, sidebar: true, library: true, editor: true, move: true, wipe: true, settings: true, crossProject: true }, null, 2));
-  console.log('Installed desktop passed: active plugin, sidebar entry, memory library, editor modified-date header, move action, whole-project wipe with confirmation, configuration page and cross-project access section.');
+  await writeFile('release/ui/desktop-result.json', JSON.stringify({ plugin: row, root: data.root, enabled: { index: data.values.indexEnabled, body: data.values.autoRecall, manualWriteOnly: !('autoExtract' in data.values) }, grants: Object.keys(data.values.crossProject ?? {}).length, sidebar: true, library: true, editor: true, move: true, wipe: true, removeProject: true, settings: true, crossProject: true }, null, 2));
+  console.log('Installed desktop passed: active plugin, sidebar entry, memory library, editor modified-date header, move action, whole-project wipe with confirmation, whole-project deletion of a cleared scope, configuration page and cross-project access section.');
 } finally { await browser.close(); }
 

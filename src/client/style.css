@@ -38,8 +38,9 @@
 
 /* Clearing a whole project scope: destructive, so it is confirmed like a delete. */
 .mm-library-actions{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
-.mm-reset-confirm{margin:0 0 18px;padding:16px;border:1px solid var(--mm-error);border-radius:7px;font-size:12px;background:var(--mm-bg);flex-shrink:0}
-.mm-reset-confirm strong{display:block;color:var(--mm-error)}
-.mm-reset-confirm p{margin:8px 0 0;color:var(--mm-muted);line-height:1.7;overflow-wrap:anywhere}
-.mm-reset-confirm .mm-reset-warning{color:var(--mm-fg)}
-.mm-reset-confirm>div{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.mm-action-hint{display:inline-flex}
+.mm-reset-confirm,.mm-remove-confirm{margin:0 0 18px;padding:16px;border:1px solid var(--mm-error);border-radius:7px;font-size:12px;background:var(--mm-bg);flex-shrink:0}
+.mm-reset-confirm strong,.mm-remove-confirm strong{display:block;color:var(--mm-error)}
+.mm-reset-confirm p,.mm-remove-confirm p{margin:8px 0 0;color:var(--mm-muted);line-height:1.7;overflow-wrap:anywhere}
+.mm-reset-confirm .mm-reset-warning,.mm-remove-confirm .mm-remove-warning{color:var(--mm-fg)}
+.mm-reset-confirm>div,.mm-remove-confirm>div{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}

@@ -91,5 +91,16 @@ export declare class MemoryManagement {
         removed: number;
         warnings: string[];
     }>;
+    /**
+     * Removes one whole project from the memory library after the page confirmed
+     * it: its directory, `PROJECT.md` and empty index are deleted, so `groups()`
+     * stops listing it. The host refuses any project that still holds entries —
+     * the page must clear it first — and the user scope is shared, so it keeps
+     * per-entry deletion. A later session in that workspace writes a fresh,
+     * empty project through `MemoryStore.ensureIdentity`.
+     */
+    removeProject(data: unknown): Promise<{
+        warnings: string[];
+    }>;
 }
 export declare function registerManagement(ctx: Context, runtime: MemoryRuntime): void;

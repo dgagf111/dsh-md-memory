@@ -8,7 +8,7 @@
 
 用户确认采用 DSH 内置中文日常管理页，覆盖所有已记录项目和用户记忆并跟随明暗主题。界面使用宿主主题 token、统一线性图标、范围导航、摘要列表、编辑器和分节配置，视觉规范见 docs/UI-DESIGN.md。
 
-页面通过官方 connection.fetch 注册的已认证接口访问所有已有 PROJECT.md，不根据页面最近会话猜测项目。编辑与删除都有 revision/hash 校验；只提交可编辑字段，不能沿用旧操作编号。清空整个项目记忆是不经 revision 校验的整体重置，因此只对项目范围开放、必须由弹窗确认，且用户层不提供该入口。设置值和 hash 从同一受锁快照读取；配置保存到 SETTINGS.md，应用后刷新已绑定会话（0.7.0 起配置里已没有提炼相关的开关）。保存期间禁用表单，避免响应覆盖新输入。
+页面通过官方 connection.fetch 注册的已认证接口访问所有已有 PROJECT.md，不根据页面最近会话猜测项目。编辑与删除都有 revision/hash 校验；只提交可编辑字段，不能沿用旧操作编号。清空整个项目记忆是不经 revision 校验的整体重置，因此只对项目范围开放、必须由弹窗确认，且用户层不提供该入口；删除整个记忆项目（0.8.0）只在该项目已经清空时可用，同样只对项目范围开放并需弹窗确认。设置值和 hash 从同一受锁快照读取；配置保存到 SETTINGS.md，应用后刷新已绑定会话（0.7.0 起配置里已没有提炼相关的开关）。保存期间禁用表单，避免响应覆盖新输入。
 
 ## 首版实施收敛
 
@@ -390,6 +390,19 @@ headless 默认关闭后台调用，可显式开启并有界等待；交互模�
 - `npm run test:host` 与 `npm run test:compat`（RC `0.2.0-rc.2` / Alpha `0.2.1-alpha.1`）的宿主契约改写为：一轮里只有该轮自己的模型调用、恢复会话不产生任何调用、清空后遗留的 `state/` 文件一并消失。
 - `tests/ui-browser.mjs` 断言配置页「记忆写入」只剩说明文字且旧开关不存在；`tests/desktop-browser.mjs` 的结果 JSON 记录 `manualWriteOnly`。
 - `scripts/compat.mjs` 增加「先把 `.compat/<版本>/src` 与 `plugin/` 删干净再复制」：否则仓库里被删除的文件会残留在临时目录里被重新类型检查。
+
+## 12.5 删除整个记忆项目（0.8.0 实施记录）
+
+`清空项目记忆` 只清内容、保留 `PROJECT.md`，项目永远留在记忆库里；手工删目录则绕过作用域锁与 `moves/` 恢复。0.8.0 增加**删除记忆项目**，把项目从记忆库整个去掉，并且只在记忆已经清空后可用。用户的选择是「删掉即可，之后在同一个工作区再写入记忆就会出现一个空项目」，因此没有做「删除墓碑 / 不再自动出现」的机制。
+
+- 入口：选中项目后“记忆库”标题栏出现“删除记忆项目”，紧挨“清空项目记忆”；`group.entries.length > 0`（含停用条目）或该范围还有坏文件诊断时按钮禁用，禁用原因写在外层 `title`，点击后弹窗显示范围名、项目路径，并说明“之后同一工作区再次写入记忆会新建空项目；要保留项目条目就用清空”。用户记忆不显示该按钮。有未保存草稿时先走既有的放弃更改确认。
+- 接口：`POST /api/md-memory/remove`，输入 `{scope: 'project', projectId, confirm: true}`；成功返回 `{warnings}`。沿用 `CONFIRMATION_REQUIRED`（400）、`USER_SCOPE_PROTECTED`（400）、`ENOENT`（404）/`INVALID_PROJECT`（400）；新增 `PROJECT_NOT_EMPTY`（409，目录里仍有条目文件）。管理路由从 7 条增至 8 条。
+- 语义（`MemoryStore.removeProject`）：先重放 `moves/`，再在作用域锁内确认**没有任何条目文件**（`^[a-z0-9]+(?:-[a-z0-9]+)*\.md$`，含停用条目与无法解析的文件），随后逐项删除除 `.write-lock.md` 之外的一切，符号链接只删链接本身；退出临界区、`withDirectoryLock` 校验并删除自己的锁文件之后，再整体 `rm` 掉项目目录。锁必须在目录还活着时结束，这是唯一需要分两步的原因。
+- 空判定：只看条目文件。遗忘墓碑、`history/`、`transactions/` 残留、旧版 `state/` 与未知产物不阻止删除——它们本来就是“已清空”的残留，删除时一并带走；页面上的按钮与接口用的是同一条规则。
+- 自愈：目录被删后，绑定中的会话仍持有旧 `ProjectIdentity`。`MemoryStore.write` / `forget` 在项目作用域落盘前调用抽出来的 `ensureIdentity`，`PROJECT.md` 缺失时重建（`root` 不符仍抛 `PROJECT_COLLISION`）。删除后第一次写入因此得到一个有效的空项目，而不是没有身份文件的“坏项目”。
+- 不变的部分：模型侧六个工具与跨项目只读授权都没有新增“删除项目”能力；用户层仍没有整库入口。`crossProject` 里指向已删项目的授权不主动改写（`resolveAccess` 按注册表过滤，下一次保存配置时由既有的 stale 剔除清掉）。日志新增 `memory.remove_project_committed`（store）与 `memory.remove_project`（管理接口）。
+
+新增/更新的验证：`tests/store.test.ts`（未清空拒绝且不改动文件、停用条目算内容、清空后目录与 `PROJECT.md` 一并消失、同级项目与用户层不受影响、绑定会话再次写入重建有效身份、用户作用域不能作为目标）、`tests/management.test.ts`（确认标记必填、用户层拒绝、坏项目 `ENOENT`、`PROJECT_NOT_EMPTY`、删除后 `groups` 不再列出且 `project()` 变 `ENOENT`、同级项目与用户层保留）、`tests/host-harness.mjs`（真实注册路由上的 `remove`、409/400 拒绝、200 后分组与注册表都少一个项目）、`tests/ui-browser.mjs`（有记忆时按钮禁用、清空后解锁、取消不删、确认后侧栏不再列出并回落到用户层与截图）、`tests/desktop-browser.mjs`（已安装界面存在删除入口、禁用时带说明、用户层没有该按钮）。
 
 ## 13. 来源
 

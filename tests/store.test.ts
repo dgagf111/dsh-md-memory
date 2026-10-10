@@ -307,3 +307,72 @@ describe('clearing one project scope', () => {
     expect((await store.read('project', 'beta-rule', beta)).name).toBe('beta-rule');
   });
 });
+
+describe('deleting one whole project scope', () => {
+  const inProject = (project: ProjectIdentity, name: string, body = `${name} 的正文。`) => store.write(input({ name, scope: 'project', body }), project);
+
+  it('refuses a project that still holds entries and leaves it untouched', async () => {
+    await store.initializeProject(alpha);
+    await inProject(alpha, 'alpha-rule');
+    await expect(store.removeProject(alpha)).rejects.toMatchObject({ code: 'PROJECT_NOT_EMPTY' });
+    // The refused call must not remove the directory, the identity or the index.
+    expect((await store.projects()).projects.map(project => project.id)).toEqual([alpha.id]);
+    expect((await store.snapshot(alpha)).memories.map(memory => memory.name)).toEqual(['alpha-rule']);
+    expect(await readFile(join(store.directory('project', alpha), 'MEMORY.md'), 'utf8')).toContain('alpha-rule.md');
+  });
+
+  it('counts a disabled entry as content, so it must be cleared first', async () => {
+    await store.initializeProject(alpha);
+    await store.write(input({ name: 'disabled-rule', scope: 'project', status: 'disabled' }), alpha);
+    await expect(store.removeProject(alpha)).rejects.toMatchObject({ code: 'PROJECT_NOT_EMPTY' });
+    expect(await store.reset(alpha)).toEqual({ removed: 1 });
+    await store.removeProject(alpha);
+    expect((await store.projects()).projects).toHaveLength(0);
+  });
+
+  it('deletes the directory, its identity and leftovers after a clear', async () => {
+    await store.initializeProject(alpha);
+    await store.initializeProject(beta);
+    await inProject(alpha, 'alpha-rule');
+    await inProject(beta, 'beta-rule');
+    await store.write(input({ name: 'user-rule', body: '用户层正文。' }));
+    const directory = store.directory('project', alpha);
+    await store.reset(alpha);
+    // A stray artifact may survive the clear; deletion must take it with the directory.
+    await mkdir(join(directory, 'unknown-artifact'), { recursive: true });
+    await writeFile(join(directory, 'unknown-artifact', 'payload.bin'), 'binary leftover');
+
+    await store.removeProject(alpha);
+    await expect(readdir(directory)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(store.project(alpha.id)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await store.projects()).projects.map(project => project.id)).toEqual([beta.id]);
+    // Other scopes and the sibling project are untouched.
+    expect((await store.snapshot(beta)).memories.map(memory => memory.name).sort()).toEqual(['beta-rule', 'user-rule']);
+    expect((await store.read('user', 'user-rule')).name).toBe('user-rule');
+  });
+
+  it('recreates a valid empty project when a bound session writes again', async () => {
+    await store.initializeProject(alpha);
+    await inProject(alpha, 'alpha-rule');
+    await store.reset(alpha);
+    await store.removeProject(alpha);
+    await expect(store.project(alpha.id)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    // A session that stayed bound to the workspace keeps its old identity object.
+    const recreated = await inProject(alpha, 'fresh-rule');
+    expect(recreated.revision).toBe(1);
+    expect((await store.projects()).projects.map(project => project.id)).toEqual([alpha.id]);
+    expect((await store.project(alpha.id)).cwd).toBe(alpha.cwd);
+    expect((await store.snapshot(alpha)).memories.map(memory => memory.name)).toEqual(['fresh-rule']);
+    expect(await readFile(join(store.directory('project', alpha), 'MEMORY.md'), 'utf8')).toContain('fresh-rule.md');
+  });
+
+  it('keeps the user scope out of reach: only projects can be removed', async () => {
+    await store.write(input({ name: 'user-rule', body: '用户层正文。' }));
+    await store.forget('user', 'user-rule');
+    // The user scope has no project identity, so it can never be a deletion target.
+    await expect(store.removeProject(undefined as unknown as ProjectIdentity)).rejects.toMatchObject({ code: 'NO_PROJECT' });
+    expect((await store.snapshot(undefined, true)).memories).toHaveLength(0);
+    expect(await readFile(join(root, 'user', 'MEMORY.md'), 'utf8')).toBe('# Memory index\n\n\n');
+  });
+});

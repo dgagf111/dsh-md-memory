@@ -224,6 +224,7 @@ try {
   await page.getByRole('button', { name: /用户记忆/ }).first().click();
   assert(await page.getByRole('button', { name: '清空项目记忆', exact: true }).count() === 0, 'The shared user scope offers no whole-scope wipe');
   await page.getByRole('button', { name: /dsh-md-memory/ }).first().click();
+  assert(await page.getByRole('button', { name: '删除记忆项目', exact: true }).isDisabled(), 'A project that still holds entries cannot be deleted from the library');
   await page.getByRole('button', { name: '清空项目记忆', exact: true }).click();
   await page.getByRole('alertdialog', { name: '清空项目记忆' }).getByRole('button', { name: '确认删除', exact: true }).click();
   await page.getByRole('status').filter({ hasText: '已清空' }).waitFor();
@@ -233,8 +234,27 @@ try {
   assert(await page.getByText('这里还没有记忆').count() === 1, 'The wiped project shows its empty state');
   assert(await page.locator('.mm-library-heading h2').textContent() === 'dsh-md-memory', 'A wiped project keeps its page entry');
   await page.screenshot({ path: join(output, 'reset-after-light.png'), fullPage: true });
+  // Deleting the cleared project: the entry point unlocks only after the wipe,
+  // cancelling changes nothing, and confirming removes the project from the library.
+  const deleteProject = page.getByRole('button', { name: '删除记忆项目', exact: true });
+  assert(!(await deleteProject.isDisabled()), 'A cleared project can be deleted from the library');
+  await deleteProject.click();
+  const removeDialog = page.getByRole('alertdialog', { name: '删除记忆项目' });
+  await removeDialog.waitFor();
+  assert((await removeDialog.textContent()).includes('此操作不可撤销'), 'The delete-project dialog explains that the scope directory goes away');
+  await page.screenshot({ path: join(output, 'remove-dialog-light.png'), fullPage: true });
+  await removeDialog.getByRole('button', { name: '取消', exact: true }).click();
+  assert(await removeDialog.count() === 0, 'Cancelling closes the delete-project dialog');
+  assert((await runtime.store.projects()).projects.some(item => item.id === project.id), 'Cancelling keeps the project in the library');
+  await deleteProject.click();
+  await page.getByRole('alertdialog', { name: '删除记忆项目' }).getByRole('button', { name: '确认删除项目', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '已删除记忆项目' }).waitFor();
+  assert(!(await runtime.store.projects()).projects.some(item => item.id === project.id), 'The deleted project leaves the memory library');
+  assert(await page.getByRole('button', { name: /dsh-md-memory/ }).count() === 0, 'The scope list no longer offers the deleted project');
+  assert(await page.locator('.mm-library-heading h2').textContent() === '用户记忆', 'The page falls back to the shared user scope after the deletion');
+  await page.screenshot({ path: join(output, 'remove-after-light.png'), fullPage: true });
   assert(!errors.length, errors.join('\n'));
-  console.log('Browser passed: compact panes, scroll, drag limits, grip hover, CRUD, hidden metadata, CAS conflict/draft, memory moves, project wipe with confirmation, settings categories/units/live apply, cross-project grants, light/dark and narrow layout.');
+  console.log('Browser passed: compact panes, scroll, drag limits, grip hover, CRUD, hidden metadata, CAS conflict/draft, memory moves, project wipe with confirmation, whole-project deletion of a cleared scope, settings categories/units/live apply, cross-project grants, light/dark and narrow layout.');
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve)); await runtime.logger.flush(); await ctx.fiber.dispose();
   await rm(root, { recursive: true, force: true }); await rm(moduleFile);

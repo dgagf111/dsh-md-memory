@@ -17,6 +17,13 @@ export declare class MemoryStore {
     /** Enumerates project scopes for the management page and for cross-project grants. */
     projects(): Promise<ProjectRegistry>;
     initializeProject(project: ProjectIdentity): Promise<void>;
+    /**
+     * Writes `PROJECT.md` when it is missing and validates it otherwise. Called
+     * on initialization and before every project-scope write, so a session that
+     * stayed bound to a workspace whose project was deleted from the memory page
+     * recreates a valid, empty project instead of a directory without identity.
+     */
+    private ensureIdentity;
     private optional;
     private files;
     snapshot(project?: ProjectIdentity, includeDisabled?: boolean, extra?: readonly ProjectIdentity[]): Promise<Snapshot>;
@@ -38,6 +45,21 @@ export declare class MemoryStore {
     reset(project: ProjectIdentity, signal?: AbortSignal): Promise<{
         removed: number;
     }>;
+    /**
+     * Deletes one whole project scope. Unlike `reset`, which keeps `PROJECT.md`
+     * and an empty index so the project stays in the page, this removes the
+     * project directory itself and the library stops listing it.
+     *
+     * Only an already cleared scope may be deleted: as long as one entry file is
+     * left the call is refused, so the two management actions keep a fixed order
+     * (clear, then delete) and the destructive step can never take unsaved
+     * memories with it. The same child-by-child deletion as `reset` is used, and
+     * only the scope directory itself is dropped after the lock is released —
+     * `withDirectoryLock` verifies and removes its own lock file at the end of
+     * the critical section, so the lock must outlive it. A session that stays
+     * bound to the workspace recreates an empty project on its next write.
+     */
+    removeProject(project: ProjectIdentity, signal?: AbortSignal): Promise<void>;
     /**
      * Moves one memory to another scope: user, another project, or this project.
      * Content, name, creation date and revision survive; an existing entry with the

@@ -90,6 +90,32 @@ it('clears one project through the management API but never the shared user scop
   expect((await store.read('user', 'user-rule')).name).toBe('user-rule');
   expect((await manager.groups()).find(group => group.id === 'user')?.entries).toHaveLength(1);
 });
+it('deletes a cleared project from the library but never one that still holds entries', async () => {
+  const project: ProjectIdentity = { id: 'delete-target-aaaaaaaa', cwd: 'C:/work/delete', root: 'C:/work/delete/.git', kind: 'git' };
+  const other: ProjectIdentity = { id: 'delete-keep-bbbbbbbbbb', cwd: 'C:/work/keep', root: 'C:/work/keep/.git', kind: 'git' };
+  await store.initializeProject(project); await store.initializeProject(other);
+  await manager.write({ ...input('project'), projectId: project.id });
+  await manager.write({ ...input('project'), projectId: other.id, name: 'other-rule' });
+  await manager.write({ ...input(), name: 'user-rule' });
+
+  await expect(manager.removeProject({ scope: 'project', projectId: project.id })).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+  await expect(manager.removeProject({ scope: 'project', projectId: project.id, confirm: 'yes' })).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+  await expect(manager.removeProject({ scope: 'user', confirm: true })).rejects.toMatchObject({ code: 'USER_SCOPE_PROTECTED' });
+  await expect(manager.removeProject(null)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  await expect(manager.removeProject({ scope: 'project', projectId: 'missing-project', confirm: true })).rejects.toMatchObject({ code: 'ENOENT' });
+  // Entries must be cleared first, so the destructive step never takes memories with it.
+  await expect(manager.removeProject({ scope: 'project', projectId: project.id, confirm: true })).rejects.toMatchObject({ code: 'PROJECT_NOT_EMPTY' });
+  expect((await manager.groups()).some(group => group.id === project.id)).toBe(true);
+
+  await expect(manager.reset({ scope: 'project', projectId: project.id, confirm: true })).resolves.toMatchObject({ removed: 1 });
+  await expect(manager.removeProject({ scope: 'project', projectId: project.id, confirm: true })).resolves.toMatchObject({ warnings: [] });
+  expect((await manager.groups()).some(group => group.id === project.id)).toBe(false);
+  await expect(manager.project(project.id)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(manager.removeProject({ scope: 'project', projectId: project.id, confirm: true })).rejects.toMatchObject({ code: 'ENOENT' });
+  // Sibling projects and the shared user scope survive the deletion.
+  expect((await manager.groups()).find(group => group.id === other.id)?.entries.map(entry => entry.name)).toEqual(['other-rule']);
+  expect((await manager.groups()).find(group => group.id === 'user')?.entries).toHaveLength(1);
+});
 it('persists settings only as Markdown, applies all options live, and detects another window', async () => {
   const before = await manager.settings();
   const saved = await manager.updateSettings({ ...before.values, autoRecall: false, indexEnabled: false, bodyLimit: 9, debug: false }, before.hash);

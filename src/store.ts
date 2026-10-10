@@ -6,6 +6,8 @@ import { decodeMemory, digest, encodeMemory, markdown, parseFrontmatter, validat
 import { PROJECT_ID, USER_SOURCE } from './access.js';
 import { MemoryError, type Logger, type Memory, type MemoryPlace, type MemoryScope, type ProjectIdentity, type Snapshot, type WriteInput } from './types.js';
 
+/** One persisted entry file, as opposed to the index, journals and locks. */
+function isMemoryFile(file: string): boolean { return /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(file); }
 interface Transaction { operation: string; action: 'write' | 'forget'; name: string; expectedHash?: string; content?: string; forgottenAt?: string; }
 interface MoveTransaction {
   operation: string; name: string; from: MemoryPlace; to: MemoryPlace;
@@ -47,12 +49,21 @@ export class MemoryStore {
     await this.recoverMoves();
     const directory = this.directory('project', project);
     await withDirectoryLock(directory, async () => {
-      const path = join(directory, 'PROJECT.md');
-      const prior = await this.optional(path);
-      if (!prior) await atomicMarkdown(path, markdown(project, '# Project identity\nDerived from the session working directory.'));
-      else if (parseFrontmatter(prior).metadata.root !== project.root) throw new MemoryError('PROJECT_COLLISION', `Project identity path mismatch: ${path}`);
+      await this.ensureIdentity(directory, project);
       await this.recover(directory, 'project');
     });
+  }
+  /**
+   * Writes `PROJECT.md` when it is missing and validates it otherwise. Called
+   * on initialization and before every project-scope write, so a session that
+   * stayed bound to a workspace whose project was deleted from the memory page
+   * recreates a valid, empty project instead of a directory without identity.
+   */
+  private async ensureIdentity(directory: string, project: ProjectIdentity): Promise<void> {
+    const path = join(directory, 'PROJECT.md');
+    const prior = await this.optional(path);
+    if (!prior) await atomicMarkdown(path, markdown(project, '# Project identity\nDerived from the session working directory.'));
+    else if (parseFrontmatter(prior).metadata.root !== project.root) throw new MemoryError('PROJECT_COLLISION', `Project identity path mismatch: ${path}`);
   }
   private async optional(path: string): Promise<string | undefined> {
     try { return await readMarkdown(path); } catch (error) { if (isMissing(error)) return; throw error; }
@@ -73,7 +84,7 @@ export class MemoryStore {
     for (const target of targets) {
       const directory = this.directory(target.scope, target.project);
       for (const file of (await this.files(directory)).sort()) {
-        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(file)) continue;
+        if (!isMemoryFile(file)) continue;
         const path = join(directory, file);
         try {
           const memory = decodeMemory(await readMarkdown(path), target.scope, file.slice(0, -3), path, target.sourceKey);
@@ -103,6 +114,7 @@ export class MemoryStore {
     try {
       return await withDirectoryLock(directory, async () => {
         await this.recover(directory, input.scope);
+        if (input.scope === 'project') await this.ensureIdentity(directory, project!);
         signal?.throwIfAborted();
         const path = join(directory, `${input.name}.md`);
         const previous = await this.optional(path);
@@ -145,6 +157,7 @@ export class MemoryStore {
     const operation = randomUUID();
     await withDirectoryLock(directory, async () => {
       await this.recover(directory, scope);
+      if (scope === 'project') await this.ensureIdentity(directory, project!);
       signal?.throwIfAborted();
       if (expected) {
         const current = await this.read(scope, name, project);
@@ -170,7 +183,7 @@ export class MemoryStore {
     await this.recoverMoves(signal);
     return withDirectoryLock(directory, async () => {
       signal?.throwIfAborted();
-      const entries = (await this.files(directory)).filter(file => /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(file));
+      const entries = (await this.files(directory)).filter(isMemoryFile);
       for (const name of await readdir(directory)) {
         // The held lock file must survive its own critical section.
         if (name === 'PROJECT.md' || name === '.write-lock.md') continue;
@@ -184,6 +197,41 @@ export class MemoryStore {
       this.logger.info({ event: 'memory.reset_committed', project: project.id, removed: entries.length, root: directory });
       return { removed: entries.length };
     }, signal);
+  }
+  /**
+   * Deletes one whole project scope. Unlike `reset`, which keeps `PROJECT.md`
+   * and an empty index so the project stays in the page, this removes the
+   * project directory itself and the library stops listing it.
+   *
+   * Only an already cleared scope may be deleted: as long as one entry file is
+   * left the call is refused, so the two management actions keep a fixed order
+   * (clear, then delete) and the destructive step can never take unsaved
+   * memories with it. The same child-by-child deletion as `reset` is used, and
+   * only the scope directory itself is dropped after the lock is released —
+   * `withDirectoryLock` verifies and removes its own lock file at the end of
+   * the critical section, so the lock must outlive it. A session that stays
+   * bound to the workspace recreates an empty project on its next write.
+   */
+  async removeProject(project: ProjectIdentity, signal?: AbortSignal): Promise<void> {
+    const directory = this.directory('project', project);
+    // Pending cross-scope moves live outside this directory and their replay
+    // needs the scope locks that this deletion is about to hold.
+    await this.recoverMoves(signal);
+    await withDirectoryLock(directory, async () => {
+      signal?.throwIfAborted();
+      const entries = (await this.files(directory)).filter(isMemoryFile);
+      if (entries.length) throw new MemoryError('PROJECT_NOT_EMPTY', `Clear this project's memory before deleting it: ${entries.length} entr${entries.length === 1 ? 'y is' : 'ies are'} left in ${directory}.`);
+      for (const name of await readdir(directory)) {
+        if (name === '.write-lock.md') continue;
+        const path = join(directory, name);
+        // A link is removed, never followed, exactly like a reset.
+        if ((await lstat(path)).isSymbolicLink()) await unlink(path);
+        else await rm(path, { recursive: true, force: true });
+      }
+    }, signal);
+    // Nothing but the lock file is left; the lock file itself is already gone.
+    await rm(directory, { recursive: true, force: true });
+    this.logger.info({ event: 'memory.remove_project_committed', project: project.id, root: directory });
   }
   /**
    * Moves one memory to another scope: user, another project, or this project.
@@ -341,7 +389,7 @@ export class MemoryStore {
   private async rebuildIndex(directory: string): Promise<void> {
     const lines: string[] = [];
     for (const file of (await this.files(directory)).sort()) {
-      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(file)) continue;
+      if (!isMemoryFile(file)) continue;
       let memory: Memory;
       try { memory = decodeMemory(await readMarkdown(join(directory, file)), 'user', file.slice(0, -3), join(directory, file)); }
       catch (error) {

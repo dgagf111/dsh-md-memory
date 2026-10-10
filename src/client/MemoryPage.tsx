@@ -32,10 +32,12 @@ export function MemoryPage({ api = defaultApi }: { api?: MemoryApi }) {
   const [notice, setNotice] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
   const [moveTo, setMoveTo] = useState<string | null>(null);
   const readController = useRef<AbortController | null>(null);
   const movePanel = useRef<HTMLDivElement | null>(null);
   const resetPanel = useRef<HTMLDivElement | null>(null);
+  const removePanel = useRef<HTMLDivElement | null>(null);
   const group = groups.find(g => g.id === selected) ?? groups[0];
   const dirty = editor !== null && JSON.stringify(editor) !== JSON.stringify(original);
   const settingsDirty = settings !== null && JSON.stringify(settings) !== JSON.stringify(view?.values);
@@ -56,22 +58,23 @@ export function MemoryPage({ api = defaultApi }: { api?: MemoryApi }) {
   useEffect(() => { if (moveTo !== null) movePanel.current?.scrollIntoView({ block: 'nearest' }); }, [moveTo]);
   // The wipe dialog sits at the top of the scrollable library, so reveal it as well.
   useEffect(() => { if (resetConfirm) resetPanel.current?.scrollIntoView({ block: 'nearest' }); }, [resetConfirm]);
+  useEffect(() => { if (removeConfirm) removePanel.current?.scrollIntoView({ block: 'nearest' }); }, [removeConfirm]);
   const leaveEditor = () => !dirty || window.confirm('这条记忆有未保存的更改。放弃更改？');
   const chooseGroup = (id: string) => {
     if (!leaveEditor()) return;
-    readController.current?.abort(); setReading(false); setSelected(id); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setMoveTo(null); setError(''); setSearch('');
+    readController.current?.abort(); setReading(false); setSelected(id); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setMoveTo(null); setError(''); setSearch('');
   };
   const changeTab = (next: typeof tab) => {
     if (busy) return;
     if (next === tab) return;
     if (tab === 'memories' && !leaveEditor()) return;
     // Keep settings drafts while switching views; a separate save button commits them.
-    readController.current?.abort(); setReading(false); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setMoveTo(null); setTab(next); setError('');
+    readController.current?.abort(); setReading(false); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setMoveTo(null); setTab(next); setError('');
   };
   async function open(name: string) {
     if (!group || !leaveEditor()) return;
     readController.current?.abort(); const controller = new AbortController(); readController.current = controller;
-    setReading(true); setEditor(null); setOriginal(null); setError(''); setNotice(''); setDeleteConfirm(false); setResetConfirm(false); setMoveTo(null);
+    setReading(true); setEditor(null); setOriginal(null); setError(''); setNotice(''); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setMoveTo(null);
     try { const memory = await api.read(targetOf(group), name, controller.signal); if (!controller.signal.aborted) { setEditor(memory); setOriginal(memory); } }
     catch (error) { if (!controller.signal.aborted) setError(errorText(error)); }
     finally { if (!controller.signal.aborted) setReading(false); }
@@ -105,7 +108,7 @@ export function MemoryPage({ api = defaultApi }: { api?: MemoryApi }) {
       const result = await api.move(targetOf(group), targetOf(destination), editor);
       const rows = await api.groups(); setGroups(rows);
       const landed = rows.find(item => item.id === destination.id);
-      readController.current?.abort(); setReading(false); setMoveTo(null); setDeleteConfirm(false); setResetConfirm(false); setSearch(''); setSelected(landed?.id ?? destination.id);
+      readController.current?.abort(); setReading(false); setMoveTo(null); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setSearch(''); setSelected(landed?.id ?? destination.id);
       if (landed) {
         try { const memory = await api.read(targetOf(landed), result.memory.name); setEditor(memory); setOriginal(memory); }
         catch { setEditor(null); setOriginal(null); }
@@ -124,10 +127,31 @@ export function MemoryPage({ api = defaultApi }: { api?: MemoryApi }) {
     await perform(async () => {
       const result = await api.reset(targetOf(scope));
       const rows = await api.groups(); setGroups(rows);
-      readController.current?.abort(); setReading(false); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setMoveTo(null); setSearch('');
+      readController.current?.abort(); setReading(false); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setMoveTo(null); setSearch('');
       setNotice(result.warnings.length
         ? `已清空「${scope.label}」的项目记忆：删除 ${result.removed} 条；上下文刷新异常：${result.warnings.join('；')}`
         : `已清空「${scope.label}」的项目记忆：删除 ${result.removed} 条。这里不会再自动重新生成记忆。`);
+    });
+  }
+  /**
+   * Removes the selected project from the memory library altogether. The host
+   * refuses any scope that still holds entries (the page also disables the
+   * action then, and while diagnostics remain), so this is only reachable for a
+   * cleared project; the dialog names the scope and says what happens when the
+   * workspace is used again.
+   */
+  async function removeProject() {
+    if (!group || group.scope !== 'project' || !group.project) return;
+    const scope = group;
+    await perform(async () => {
+      const result = await api.removeProject(targetOf(scope));
+      const rows = await api.groups(); setGroups(rows);
+      readController.current?.abort(); setReading(false); setEditor(null); setOriginal(null); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setMoveTo(null); setSearch('');
+      const landed = rows.find(item => item.id === scope.id) ? scope.id : (rows.find(item => item.scope === 'user')?.id ?? scope.id);
+      setSelected(landed);
+      setNotice(result.warnings.length
+        ? `已删除记忆项目「${scope.label}」；上下文刷新异常：${result.warnings.join('；')}`
+        : `已删除记忆项目「${scope.label}」。同一个工作区再次写入记忆时会新建一个空项目。`);
     });
   }
   const entries = group?.entries.filter(memory => `${memory.title} ${memory.description} ${memory.name} ${memory.tags.join(' ')}`.toLowerCase().includes(search.toLowerCase())) ?? [];
@@ -145,8 +169,9 @@ export function MemoryPage({ api = defaultApi }: { api?: MemoryApi }) {
       setNotice(result.warnings?.length ? `配置已保存；${result.warnings.join('；')}` : `配置已保存并生效。${stale}`);
     })}/> : <PaneLayout navigation={
       <aside className="mm-library-nav" aria-label="记忆范围"><h2>个人与项目</h2><div className="mm-group-list">{groups.map(item => <button key={item.id} className={`mm-group ${selected === item.id ? 'is-active' : ''}`} aria-pressed={selected === item.id} disabled={busy} onClick={() => chooseGroup(item.id)}><Icon name={item.scope === 'user' ? 'user' : 'folder'}/><span><strong>{item.label}</strong><small>{item.scope === 'user' ? '跨项目共享' : item.project?.cwd ?? '元数据异常'}</small></span><span className="mm-count">{item.entries.length}</span></button>)}</div><p className="mm-nav-note">项目来自会话工作区。独立仓库各自保存，同一仓库的 worktree 共用记忆。</p></aside>} library={
-      <main className="mm-library"><div className="mm-library-heading"><div><h2>{group?.label ?? '记忆库'}</h2><p>{group?.scope === 'user' ? '你的偏好与长期约定，适用于不同项目。' : group?.project?.cwd ?? '选择一个范围查看记忆。'}</p></div><div className="mm-library-actions">{group?.scope === 'project' && group.project && <button className="mm-button mm-danger" disabled={busy} title="删除这个项目的全部记忆，包括修订历史与遗忘标记" onClick={() => { if (!leaveEditor()) return; setMoveTo(null); setError(''); setResetConfirm(true); }}><Icon name="trash"/>清空项目记忆</button>}<button className="mm-button mm-primary" disabled={busy || !group || !!group.diagnostics.length && !group.project && group.scope === 'project'} onClick={() => { if (!group || !leaveEditor()) return; readController.current?.abort(); setReading(false); const fresh = emptyMemory(group); setEditor(fresh); setOriginal(fresh); setDeleteConfirm(false); setResetConfirm(false); setError(''); }}><Icon name="plus"/>新建记忆</button></div></div>
+      <main className="mm-library"><div className="mm-library-heading"><div><h2>{group?.label ?? '记忆库'}</h2><p>{group?.scope === 'user' ? '你的偏好与长期约定，适用于不同项目。' : group?.project?.cwd ?? '选择一个范围查看记忆。'}</p></div><div className="mm-library-actions">{group?.scope === 'project' && group.project && <button className="mm-button mm-danger" disabled={busy} title="删除这个项目的全部记忆，包括修订历史与遗忘标记" onClick={() => { if (!leaveEditor()) return; setMoveTo(null); setError(''); setRemoveConfirm(false); setResetConfirm(true); }}><Icon name="trash"/>清空项目记忆</button>}{group?.scope === 'project' && group.project && <span className="mm-action-hint" title={group.entries.length ? `还有 ${group.entries.length} 条记忆，先清空项目记忆才能删除整个项目` : group.diagnostics.length ? '这个项目目录里还有无法解析的文件；先按诊断信息处理，再删除整个项目' : '从记忆库删除这个项目，包括它的项目身份文件'}><button className="mm-button mm-danger" disabled={busy || group.entries.length > 0 || group.diagnostics.length > 0} onClick={() => { if (!leaveEditor()) return; setMoveTo(null); setError(''); setResetConfirm(false); setRemoveConfirm(true); }}><Icon name="trash"/>删除记忆项目</button></span>}<button className="mm-button mm-primary" disabled={busy || !group || !!group.diagnostics.length && !group.project && group.scope === 'project'} onClick={() => { if (!group || !leaveEditor()) return; readController.current?.abort(); setReading(false); const fresh = emptyMemory(group); setEditor(fresh); setOriginal(fresh); setDeleteConfirm(false); setResetConfirm(false); setRemoveConfirm(false); setError(''); }}><Icon name="plus"/>新建记忆</button></div></div>
         {resetConfirm && group?.scope === 'project' && group.project && <div className="mm-reset-confirm" role="alertdialog" aria-label="清空项目记忆" ref={resetPanel}><strong>清空「{group.label}」的全部记忆？</strong><p>将删除 {group.entries.length} 条记忆，以及它们的修订历史与遗忘标记（{group.project.cwd}）。此操作不可撤销。</p><p className="mm-reset-warning">删除后不会自动重新生成记忆；需要时由 Agent 主动写入或在页面上重新保存。</p><div><button className="mm-button" type="button" disabled={busy} onClick={() => setResetConfirm(false)}>取消</button><button className="mm-button mm-danger" type="button" disabled={busy} onClick={() => void resetProject()}>确认删除</button></div></div>}
+        {removeConfirm && group?.scope === 'project' && group.project && <div className="mm-remove-confirm" role="alertdialog" aria-label="删除记忆项目" ref={removePanel}><strong>删除记忆项目「{group.label}」？</strong><p>将删除这个项目的记忆目录与项目身份文件（{group.project.cwd}），记忆库不再列出它。此操作不可撤销。</p><p className="mm-remove-warning">同一个工作区之后再次写入记忆时，会新建一个空项目；要保留项目条目就用「清空项目记忆」。</p><div><button className="mm-button" type="button" disabled={busy} onClick={() => setRemoveConfirm(false)}>取消</button><button className="mm-button mm-danger" type="button" disabled={busy} onClick={() => void removeProject()}>确认删除项目</button></div></div>}
         {group?.diagnostics.map((diagnostic, i) => <div className="mm-message mm-error" key={i}><span>{diagnostic.code}：{diagnostic.message}</span></div>)}
         <div className="mm-list-tools"><label className="mm-search"><Icon name="search"/><input aria-label="搜索记忆" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索标题、摘要或标签"/></label></div>
         <div className="mm-entry-list">{entries.length ? entries.map(memory => <button className={`mm-entry ${editor?.name === memory.name ? 'is-active' : ''}`} key={memory.id} disabled={busy} onClick={() => void open(memory.name)}><div className="mm-entry-title"><h3>{memory.title}</h3>{memory.status === 'disabled' && <span className="mm-muted">已停用</span>}</div><p>{memory.description}</p><div className="mm-entry-bottom"><span>{memory.name}.md</span><span className="mm-date">{new Date(memory.modified).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}</span></div></button>) : <div className="mm-empty"><Icon size={35}/><h3>{search ? '没有匹配的记忆' : '这里还没有记忆'}</h3><p>{search ? '换一个关键词再试试。' : '从一条值得保留的约定开始。你也可以在对话中让 Agent 记住它。'}</p></div>}</div>

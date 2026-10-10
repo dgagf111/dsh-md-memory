@@ -37,6 +37,9 @@ export declare const api: {
         removed: number;
         warnings: string[];
     }>;
+    removeProject: (target: Target) => Promise<{
+        warnings: string[];
+    }>;
     settings: (signal?: AbortSignal) => Promise<SettingsView>;
     saveSettings: (values: SettingsValues, hash: string) => Promise<SettingsView>;
 };

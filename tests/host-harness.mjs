@@ -216,6 +216,26 @@ try {
   const groupsAfterReset = await (await api.fetch(new Request('http://localhost/api/md-memory/groups'))).json();
   assert.equal(groupsAfterReset.find(group => group.id === resetTarget.id).entries.length, 0, 'the management page lists the wiped project as empty');
   assert.equal((await ctx.mdMemory.store.project(resetTarget.id)).cwd, resetTarget.cwd, 'PROJECT.md keeps the project identity');
+  // Deleting a whole project through the real management route: it must be
+  // cleared first, needs the confirmation flag, and never targets the user scope.
+  const removeRoute = body => api.fetch(new Request('http://localhost/api/md-memory/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+  const nonEmptyRemove = await removeRoute({ scope: 'project', projectId: other.id, confirm: true });
+  assert.equal(nonEmptyRemove.status, 409, 'a project that still holds entries cannot be deleted');
+  assert.equal((await nonEmptyRemove.json()).code, 'PROJECT_NOT_EMPTY');
+  assert.equal((await ctx.mdMemory.store.project(other.id)).cwd, otherDir, 'the refused deletion keeps the refused project intact');
+  const unconfirmedRemove = await removeRoute({ scope: 'project', projectId: resetTarget.id });
+  assert.equal(unconfirmedRemove.status, 400, 'deleting a project needs the page confirmation');
+  assert.equal((await unconfirmedRemove.json()).code, 'CONFIRMATION_REQUIRED');
+  const userRemove = await removeRoute({ scope: 'user', confirm: true });
+  assert.equal(userRemove.status, 400, 'the shared user scope is never a delete target');
+  assert.equal((await userRemove.json()).code, 'USER_SCOPE_PROTECTED');
+  const removeResponse = await removeRoute({ scope: 'project', projectId: resetTarget.id, confirm: true });
+  assert.equal(removeResponse.status, 200, await removeResponse.clone().text());
+  assert.deepEqual(await removeResponse.json(), { warnings: [] }, 'the deletion reports the context refresh result');
+  const groupsAfterRemove = await (await api.fetch(new Request('http://localhost/api/md-memory/groups'))).json();
+  assert.equal(groupsAfterRemove.some(group => group.id === resetTarget.id), false, 'the deleted project leaves the memory library');
+  await assert.rejects(ctx.mdMemory.store.project(resetTarget.id), { code: 'ENOENT' }, 'the identity file goes with the scope directory');
+  assert.equal((await ctx.mdMemory.store.projects()).projects.some(project => project.id === other.id), true, 'other projects survive the deletion');
   // Explicit user-scope denial must also cover direct reads of a known name,
   // including revocation between tool calls without a prior refresh.
   const hidden = await ctx.mdMemory.store.write({ ...input, scope: 'user', name: 'hidden-user-rule', body: 'USER_PRIVATE_SENTINEL',
@@ -250,7 +270,7 @@ try {
   await ctx.mdMemory.logger.flush(); await disabled.ctx.mdMemory.logger.flush();
   const files = await readdir(join(root, 'memories'), { recursive: true, withFileTypes: true });
   assert(files.filter(f => f.isFile()).every(f => f.name.endsWith('.md')));
-  console.log('DSH host contract passed: plugin load, Native/PTC tools, context refresh, conflicts, forget, memory moves, project wipe, child isolation, resume/fork, workspace binding and cross-project grants.');
+  console.log('DSH host contract passed: plugin load, Native/PTC tools, context refresh, conflicts, forget, memory moves, project wipe, project deletion of a cleared scope, child isolation, resume/fork, workspace binding and cross-project grants.');
 } finally {
   for (const ctx of contexts.reverse()) await ctx.fiber.dispose();
   await rm(root, { recursive: true, force: true });
