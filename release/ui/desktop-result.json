@@ -16,11 +16,12 @@
     "body": true,
     "extraction": true
   },
-  "grants": 3,
+  "grants": 4,
   "sidebar": true,
   "library": true,
   "editor": true,
   "move": true,
+  "wipe": true,
   "settings": true,
   "crossProject": true
 }
