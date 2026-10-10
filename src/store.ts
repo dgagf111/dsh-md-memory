@@ -1,4 +1,4 @@
-import { readdir, rm } from 'node:fs/promises';
+import { lstat, readdir, rm, unlink } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { assertRegularDirectory, atomicMarkdown, isMissing, readMarkdown, withDirectoryLock } from './files.js';
@@ -156,6 +156,36 @@ export class MemoryStore {
       }
       await this.commit(directory, { operation, action: 'forget', name, forgottenAt: new Date().toISOString() });
       this.logger.info({ event: 'memory.forget_committed', operation, name, scope, project: project?.id });
+    }, signal);
+  }
+  /**
+   * Erases one project's memory as a whole: entries, revision history, forgotten
+   * markers, pending journals and extraction checkpoints. `PROJECT.md` survives,
+   * so the project keeps its identity in the management page, and the index is
+   * rebuilt empty. There is no undo and dropping the checkpoints means a live
+   * session can extract its history again, so only the management page calls
+   * this, after an explicit confirmation; the user scope is never a reset target.
+   */
+  async reset(project: ProjectIdentity, signal?: AbortSignal): Promise<{ removed: number }> {
+    const directory = this.directory('project', project);
+    // Pending cross-scope moves live outside this directory and their replay
+    // needs the scope locks that this reset is about to hold.
+    await this.recoverMoves(signal);
+    return withDirectoryLock(directory, async () => {
+      signal?.throwIfAborted();
+      const entries = (await this.files(directory)).filter(file => /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(file));
+      for (const name of await readdir(directory)) {
+        // The held lock file must survive its own critical section.
+        if (name === 'PROJECT.md' || name === '.write-lock.md') continue;
+        const path = join(directory, name);
+        // A link is removed, never followed: a junction must not let the wipe
+        // reach outside the memory scope.
+        if ((await lstat(path)).isSymbolicLink()) await unlink(path);
+        else await rm(path, { recursive: true, force: true });
+      }
+      await this.rebuildIndex(directory);
+      this.logger.info({ event: 'memory.reset_committed', project: project.id, removed: entries.length, root: directory });
+      return { removed: entries.length };
     }, signal);
   }
   /**

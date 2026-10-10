@@ -33,6 +33,11 @@ export declare const api: {
         memory: Memory;
         warnings: string[];
     }>;
+    reset: (target: Target) => Promise<{
+        removed: number;
+        cancelledExtractions: number;
+        warnings: string[];
+    }>;
     settings: (signal?: AbortSignal) => Promise<SettingsView>;
     saveSettings: (values: SettingsValues, hash: string) => Promise<SettingsView>;
 };

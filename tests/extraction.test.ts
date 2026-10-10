@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { MemoryStore } from '../src/store.js';
 import { createLogger } from '../src/logging.js';
 import { ExtractionScheduler, type ExtractionMessage, type ExtractionTask } from '../src/extraction.js';
+import type { ProjectIdentity } from '../src/types.js';
 
 /** One extraction request as the background model receives it. */
 interface Payload {
@@ -224,6 +225,26 @@ it('shows disabled candidates and skips disabled, conflicting and forgotten prop
     expect(await store.read('user', 'retired-topic')).toMatchObject({ status: 'disabled', revision: 1, body: '停用正文' });
     // The window still progressed: one refusal cannot block the rest of the turn.
     expect((await store.checkpoint(undefined, batch.session)).boundary).toBe(6);
+  } finally { await scheduler.stop(); await logger.flush(); await rm(root, { recursive: true, force: true }); }
+});
+it('drops the queued extraction of a project whose memory was erased', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'md-extraction-cancel-')); const logger = createLogger(root); const store = new MemoryStore(root, logger);
+  const project: ProjectIdentity = { id: 'alpha-aaaaaaaaaaaaaaaa', cwd: 'C:/work/alpha', root: 'C:/work/alpha/.git', kind: 'git' };
+  await store.initializeProject(project);
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const scheduler = new ExtractionScheduler(store, async () => { calls += 1; await gate; return '{"operations":[]}'; }, logger);
+  try {
+    // The first task leaves the queue as soon as it runs; the second stays pending.
+    scheduler.schedule({ ...task, session: 'running-session', project });
+    scheduler.schedule({ ...task, session: 'queued-session', project });
+    expect(scheduler.cancelProject('beta-bbbbbbbbbbbbbbbb')).toBe(0);
+    expect(scheduler.cancelProject(project.id)).toBe(1);
+    expect(scheduler.status('queued-session').state).toBe('idle');
+    release(); await scheduler.drain();
+    expect(calls).toBe(1);
+    expect((await store.checkpoint(project, 'queued-session')).boundary).toBe(-1);
   } finally { await scheduler.stop(); await logger.flush(); await rm(root, { recursive: true, force: true }); }
 });
 it('fails the batch on unexpected write errors instead of skipping them', async () => {

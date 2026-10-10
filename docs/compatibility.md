@@ -21,9 +21,9 @@
 
 ## 测试范围
 
-单元测试检查排名、字节预算、中文与别名、零分索引填充、正文按需、冲突、人工编辑、敏感内容拒绝、事务恢复、遗忘、提取检查点及 Git worktree 身份。跨项目部分另测授权矩阵归一化与失效剔除、可见来源解析与 handle 冲突退化、被授权条目的预算护栏与链接渲染、多来源快照、`recallUser` 旧键迁移，以及配置页保存时把每个项目写成显式矩阵。移动部分另测 user/项目之间任意互转的内容与 `created`/`revision` 保真、原范围历史清理与 tombstone 护栏、同名拒绝、同范围拒绝、陈旧拒绝，以及目标范围旧遗忘标记被显式移动清除。
+单元测试检查排名、字节预算、中文与别名、零分索引填充、正文按需、冲突、人工编辑、敏感内容拒绝、事务恢复、遗忘、提取检查点及 Git worktree 身份。跨项目部分另测授权矩阵归一化与失效剔除、可见来源解析与 handle 冲突退化、被授权条目的预算护栏与链接渲染、多来源快照、`recallUser` 旧键迁移，以及配置页保存时把每个项目写成显式矩阵。移动部分另测 user/项目之间任意互转的内容与 `created`/`revision` 保真、原范围历史清理与 tombstone 护栏、同名拒绝、同范围拒绝、陈旧拒绝，以及目标范围旧遗忘标记被显式移动清除。清空部分另测墓碑/修订/检查点与其它产物一并删除、`PROJECT.md` 与空索引保留、其它作用域不受影响、清空后可继续写入，以及提炼调度器按项目丢弃排队任务。
 
-宿主测试实际组装指定版本的 Cordis、AgentLoop、LLM、Session、SystemPrompt 与 ToolRuntime，用脚本化模型验证：插件加载、模型工具写入、下一步骤上下文刷新、独立辅助调用、跨会话共享、恢复去重、fork 继承排除和子 Agent 隔离。跨项目部分另验证：未授权项目读取被拒（`PROJECT_NOT_VISIBLE`）、保存授权后活动会话立即读到、`status.visibleSources` 与 `search`/`list` 覆盖被授权项目，以及带 `project` 的写入只落在当前项目。移动部分在真实注册的管理路由上验证 user→项目与项目→user、`REVISION_CONFLICT`（409）和 `SAME_TARGET`（400）。PTC 使用真实 run_code 分发桥和测试后端验证规范输出，不验证操作系统沙箱。
+宿主测试实际组装指定版本的 Cordis、AgentLoop、LLM、Session、SystemPrompt 与 ToolRuntime，用脚本化模型验证：插件加载、模型工具写入、下一步骤上下文刷新、独立辅助调用、跨会话共享、恢复去重、fork 继承排除和子 Agent 隔离。跨项目部分另验证：未授权项目读取被拒（`PROJECT_NOT_VISIBLE`）、保存授权后活动会话立即读到、`status.visibleSources` 与 `search`/`list` 覆盖被授权项目，以及带 `project` 的写入只落在当前项目。移动部分在真实注册的管理路由上验证 user→项目与项目→user、`REVISION_CONFLICT`（409）和 `SAME_TARGET`（400）。清空部分在真实注册的路由上验证缺确认标记与用户层目标都被拒（`CONFIRMATION_REQUIRED` / `USER_SCOPE_PROTECTED`，均 400），确认后 `groups` 里该项目为空、检查点消失而 `PROJECT.md` 仍在。PTC 使用真实 run_code 分发桥和测试后端验证规范输出，不验证操作系统沙箱。
 
 模型响应来自测试 adapter，不消耗用户模型额度；提示词在用户所选真实模型上的保存质量与成本需实际使用观察。断电耐久性没有单独验证。未知版本不自动扩大 peer 范围，每次扩展版本前重新执行这套矩阵。
 

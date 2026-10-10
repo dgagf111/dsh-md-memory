@@ -203,8 +203,37 @@ try {
   assert(await page.locator('.mm-library-heading h2').textContent() === 'dsh-md-memory', 'The page did not follow the memory to the destination scope');
   assert(await page.getByLabel('标题', { exact: true }).inputValue() === '错误应当可见', 'The moved memory was not reopened in the destination');
   await page.screenshot({ path: join(output, 'move-light.png'), fullPage: true });
+  // Clearing a whole project scope: the dialog names the scope and the entry count,
+  // cancelling changes nothing, the shared user scope offers no wipe, and the
+  // confirmed wipe also removes disabled entries while the project itself stays.
+  await runtime.store.write({ scope: 'project', name: 'disabled-rule', type: 'project', title: '已停用的项目记忆', description: '清空时也应被删除。',
+    body: '停用条目的正文。', status: 'disabled', source: { session: 'ui-fixture', turn: 1, kind: 'explicit-user' } }, project);
+  await page.getByRole('button', { name: '刷新记忆', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '已刷新' }).waitFor();
+  const projectEntryCount = (await runtime.store.snapshot(project, true)).memories.filter(memory => memory.scope === 'project').length;
+  assert(projectEntryCount >= 6, `The fixture should hold several project entries: ${projectEntryCount}`);
+  await page.getByRole('button', { name: '清空项目记忆', exact: true }).click();
+  const resetDialog = page.getByRole('alertdialog', { name: '清空项目记忆' });
+  await resetDialog.waitFor();
+  assert((await resetDialog.textContent()).includes(`将删除 ${projectEntryCount} 条记忆`), 'The wipe dialog names the scope and the number of entries');
+  await page.screenshot({ path: join(output, 'reset-dialog-light.png'), fullPage: true });
+  await resetDialog.getByRole('button', { name: '取消', exact: true }).click();
+  assert(await resetDialog.count() === 0, 'Cancelling closes the wipe dialog');
+  assert((await runtime.store.snapshot(project, true)).memories.filter(memory => memory.scope === 'project').length === projectEntryCount, 'Cancelling the wipe must delete nothing');
+  await page.getByRole('button', { name: /用户记忆/ }).first().click();
+  assert(await page.getByRole('button', { name: '清空项目记忆', exact: true }).count() === 0, 'The shared user scope offers no whole-scope wipe');
+  await page.getByRole('button', { name: /dsh-md-memory/ }).first().click();
+  await page.getByRole('button', { name: '清空项目记忆', exact: true }).click();
+  await page.getByRole('alertdialog', { name: '清空项目记忆' }).getByRole('button', { name: '确认删除', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '已清空' }).waitFor();
+  const wiped = (await runtime.store.snapshot(project, true)).memories.filter(memory => memory.scope === 'project');
+  assert(wiped.length === 0, `The project scope must be empty after the wipe: ${wiped.map(memory => memory.name).join(', ')}`);
+  assert((await runtime.store.snapshot()).memories.some(memory => memory.name === 'communication'), 'The shared user scope survives a project wipe');
+  assert(await page.getByText('这里还没有记忆').count() === 1, 'The wiped project shows its empty state');
+  assert(await page.locator('.mm-library-heading h2').textContent() === 'dsh-md-memory', 'A wiped project keeps its page entry');
+  await page.screenshot({ path: join(output, 'reset-after-light.png'), fullPage: true });
   assert(!errors.length, errors.join('\n'));
-  console.log('Browser passed: compact panes, scroll, drag limits, grip hover, CRUD, hidden metadata, CAS conflict/draft, memory moves, settings categories/units/live apply, cross-project grants, light/dark and narrow layout.');
+  console.log('Browser passed: compact panes, scroll, drag limits, grip hover, CRUD, hidden metadata, CAS conflict/draft, memory moves, project wipe with confirmation, settings categories/units/live apply, cross-project grants, light/dark and narrow layout.');
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve)); await runtime.logger.flush(); await ctx.fiber.dispose();
   await rm(root, { recursive: true, force: true }); await rm(moduleFile);

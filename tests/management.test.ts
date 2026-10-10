@@ -18,7 +18,7 @@ const input = (scope: 'user' | 'project' = 'user'): WriteInput => ({ scope, name
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'md-memory-management-')); config = Config({ memoryDir: root });
   store = new MemoryStore(root, createLogger(root));
-  manager = new MemoryManagement({ store, config, profileConfig: { ...config }, logger: store.logger, scheduler: { configure() {}, cancelQueued() {} }, refreshAll: async () => [] } as unknown as MemoryRuntime);
+  manager = new MemoryManagement({ store, config, profileConfig: { ...config }, logger: store.logger, scheduler: { configure() {}, cancelQueued() {}, cancelProject: () => 0 }, refreshAll: async () => [] } as unknown as MemoryRuntime);
 });
 afterEach(async () => { await store.logger.flush(); await rm(root, { recursive: true, force: true }); });
 it('browses and edits an inactive project and retains disabled entries for management', async () => {
@@ -65,6 +65,30 @@ it('moves a memory between the user scope and a project through the management A
   await expect(manager.move({ scope: 'user', name: occupied.memory.name, revision: occupied.memory.revision, hash: occupied.memory.hash, toScope: 'project', toProjectId: project.id })).rejects.toMatchObject({ code: 'NAME_CONFLICT' });
   expect((await store.read('project', occupied.memory.name, project)).body).toBe('移动过的正文。');
   expect((await store.read('user', occupied.memory.name)).revision).toBe(1);
+});
+it('clears one project through the management API but never the shared user scope', async () => {
+  const project: ProjectIdentity = { id: 'wipe-target-aaaaaaaaaaaa', cwd: 'C:/work/wipe', root: 'C:/work/wipe/.git', kind: 'git' };
+  const other: ProjectIdentity = { id: 'keep-target-bbbbbbbbbbbb', cwd: 'C:/work/keep', root: 'C:/work/keep/.git', kind: 'git' };
+  await store.initializeProject(project); await store.initializeProject(other);
+  await manager.write({ ...input('project'), projectId: project.id });
+  await manager.write({ ...input('project'), projectId: project.id, name: 'second-rule' });
+  await manager.write({ ...input('project'), projectId: other.id, name: 'other-rule' });
+  await manager.write({ ...input(), name: 'user-rule' });
+
+  // The page must confirm, and the user scope is never a reset target.
+  await expect(manager.reset({ scope: 'project', projectId: project.id })).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+  await expect(manager.reset({ scope: 'project', projectId: project.id, confirm: 'yes' })).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+  await expect(manager.reset({ scope: 'user', confirm: true })).rejects.toMatchObject({ code: 'USER_SCOPE_PROTECTED' });
+  await expect(manager.reset(null)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  await expect(manager.reset({ scope: 'project', projectId: 'missing-project', confirm: true })).rejects.toMatchObject({ code: 'ENOENT' });
+  expect((await store.snapshot(project)).memories.filter(memory => memory.scope === 'project')).toHaveLength(2);
+
+  await expect(manager.reset({ scope: 'project', projectId: project.id, confirm: true })).resolves.toMatchObject({ removed: 2, cancelledExtractions: 0, warnings: [] });
+  expect((await store.snapshot(project)).memories.filter(memory => memory.scope === 'project')).toHaveLength(0);
+  expect((await manager.groups()).find(group => group.id === project.id)?.entries).toEqual([]);
+  expect((await store.snapshot(other)).memories.filter(memory => memory.scope === 'project').map(memory => memory.name)).toEqual(['other-rule']);
+  expect((await store.read('user', 'user-rule')).name).toBe('user-rule');
+  expect((await manager.groups()).find(group => group.id === 'user')?.entries).toHaveLength(1);
 });
 it('persists settings only as Markdown, applies all options live, and detects another window', async () => {
   const before = await manager.settings();

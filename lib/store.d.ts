@@ -27,6 +27,17 @@ export declare class MemoryStore {
         hash: string;
     }): Promise<void>;
     /**
+     * Erases one project's memory as a whole: entries, revision history, forgotten
+     * markers, pending journals and extraction checkpoints. `PROJECT.md` survives,
+     * so the project keeps its identity in the management page, and the index is
+     * rebuilt empty. There is no undo and dropping the checkpoints means a live
+     * session can extract its history again, so only the management page calls
+     * this, after an explicit confirmation; the user scope is never a reset target.
+     */
+    reset(project: ProjectIdentity, signal?: AbortSignal): Promise<{
+        removed: number;
+    }>;
+    /**
      * Moves one memory to another scope: user, another project, or this project.
      * Content, name, creation date and revision survive; an existing entry with the
      * same name in the destination is never overwritten. The source keeps a

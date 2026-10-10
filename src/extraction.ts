@@ -180,6 +180,22 @@ export class ExtractionScheduler {
     for (const session of this.pending.keys()) this.states.set(session, { state: 'idle' });
     this.pending.clear();
   }
+  /**
+   * Drops the queued extraction of one project whose memory was just erased.
+   * A task already running is not interrupted: it may still commit its current
+   * batch, which the management page reports as a possible late write.
+   */
+  cancelProject(projectId: string): number {
+    let cancelled = 0;
+    for (const [session, task] of this.pending) {
+      if (task.project?.id !== projectId) continue;
+      this.pending.delete(session);
+      this.states.set(session, { state: 'idle' });
+      cancelled += 1;
+    }
+    if (cancelled) this.logger.debug({ event: 'extraction.project_cancelled', project: projectId, sessions: cancelled });
+    return cancelled;
+  }
   schedule(task: ExtractionTask): void {
     if (this.controller.signal.aborted) throw new MemoryError('EXTRACTION_DISPOSED', 'Memory extraction scheduler is stopped.');
     this.pending.set(task.session, task);

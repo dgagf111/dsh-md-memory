@@ -97,5 +97,16 @@ export declare class MemoryManagement {
         memory: Memory;
         warnings: string[];
     }>;
+    /**
+     * Erases one project's whole memory after the page confirmed it. The user scope
+     * is never a target: it is shared across projects, so it keeps per-entry
+     * deletion. Entries queued for background extraction in that project are
+     * dropped first, so work scheduled before the reset cannot write it back.
+     */
+    reset(data: unknown): Promise<{
+        removed: number;
+        cancelledExtractions: number;
+        warnings: string[];
+    }>;
 }
 export declare function registerManagement(ctx: Context, runtime: MemoryRuntime): void;

@@ -268,3 +268,53 @@ describe('moving memories between scopes', () => {
     expect((await store.snapshot(alpha)).memories.map(memory => memory.name)).toEqual(['revived-rule']);
   });
 });
+
+describe('clearing one project scope', () => {
+  const inProject = (project: ProjectIdentity, name: string, body = `${name} 的正文。`) => store.write(input({ name, scope: 'project', body }), project);
+
+  it('removes entries, revisions, tombstones and checkpoints while other scopes stay intact', async () => {
+    await store.initializeProject(alpha);
+    await store.initializeProject(beta);
+    await inProject(alpha, 'forgotten-rule');
+    const revised = await inProject(alpha, 'revised-rule', '第一版。');
+    await store.write(input({ name: 'revised-rule', scope: 'project', body: '第二版。', expectedRevision: revised.revision, expectedHash: revised.hash }), alpha);
+    await inProject(alpha, 'shared-name');
+    await inProject(beta, 'shared-name');
+    await store.forget('project', 'forgotten-rule', alpha);
+    await store.saveCheckpoint(alpha, 'alpha-session', { boundary: 12 });
+    await store.write(input({ name: 'user-rule', body: '用户层正文。' }));
+
+    // Only the two surviving entry files count; the tombstone is already gone.
+    expect(await store.reset(alpha)).toEqual({ removed: 2 });
+    expect((await store.snapshot(alpha)).memories.map(memory => memory.name)).toEqual(['user-rule']);
+    await expect(store.read('project', 'revised-rule', alpha)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(store.read('project', 'shared-name', alpha)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readdir(join(root, 'projects', alpha.id, 'forgotten'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readdir(join(root, 'projects', alpha.id, 'history'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(store.checkpoint(alpha, 'alpha-session')).resolves.toEqual({ boundary: -1 });
+    // The wiped scope keeps a valid empty index and its identity, not a stale index.
+    expect((await readdir(join(root, 'projects', alpha.id))).sort()).toEqual(['MEMORY.md', 'PROJECT.md']);
+    expect(await readFile(join(root, 'projects', alpha.id, 'MEMORY.md'), 'utf8')).toBe('# Memory index\n\n\n');
+    expect((await store.project(alpha.id)).cwd).toBe(alpha.cwd);
+    expect((await store.snapshot(beta)).memories.map(memory => memory.name).sort()).toEqual(['shared-name', 'user-rule']);
+    expect((await store.read('user', 'user-rule')).name).toBe('user-rule');
+  });
+
+  it('drops every other artifact of the scope and accepts new writes afterwards', async () => {
+    await store.initializeProject(alpha);
+    await inProject(alpha, 'alpha-rule');
+    await inProject(beta, 'beta-rule');
+    const directory = store.directory('project', alpha);
+    await mkdir(join(directory, 'unknown-artifact'), { recursive: true });
+    await writeFile(join(directory, 'unknown-artifact', 'payload.bin'), 'binary leftover');
+    await writeFile(join(directory, 'stray.txt'), 'not a memory');
+    await writeFile(join(directory, '.pending-dead.md'), 'half-written temporary file');
+
+    expect((await store.reset(alpha)).removed).toBe(1);
+    expect((await readdir(directory)).sort()).toEqual(['MEMORY.md', 'PROJECT.md']);
+    const fresh = await inProject(alpha, 'fresh-rule');
+    expect(fresh.revision).toBe(1);
+    expect((await store.snapshot(alpha)).memories.map(memory => memory.name)).toEqual(['fresh-rule']);
+    expect((await store.read('project', 'beta-rule', beta)).name).toBe('beta-rule');
+  });
+});

@@ -6,7 +6,7 @@
 
 用户确认采用 DSH 内置中文日常管理页，覆盖所有已记录项目和用户记忆并跟随明暗主题。界面使用宿主主题 token、统一线性图标、范围导航、摘要列表、编辑器和分节配置，视觉规范见 docs/UI-DESIGN.md。
 
-页面通过官方 connection.fetch 注册的已认证接口访问所有已有 PROJECT.md，不根据页面最近会话猜测项目。编辑与删除都有 revision/hash 校验；只提交可编辑字段，不能沿用旧操作编号。设置值和 hash 从同一受锁快照读取；配置保存到 SETTINGS.md，应用后刷新已绑定会话。关闭提炼清空排队任务，运行中的任务继续完成。保存期间禁用表单，避免响应覆盖新输入。
+页面通过官方 connection.fetch 注册的已认证接口访问所有已有 PROJECT.md，不根据页面最近会话猜测项目。编辑与删除都有 revision/hash 校验；只提交可编辑字段，不能沿用旧操作编号。清空整个项目记忆是不经 revision 校验的整体重置，因此只对项目范围开放、必须由弹窗确认，且用户层不提供该入口。设置值和 hash 从同一受锁快照读取；配置保存到 SETTINGS.md，应用后刷新已绑定会话。关闭提炼清空排队任务，运行中的任务继续完成。保存期间禁用表单，避免响应覆盖新输入。
 
 ## 首版实施收敛
 
@@ -345,6 +345,18 @@ headless 默认关闭后台调用，可显式开启并有界等待；交互模�
 - 不变的部分：模型侧六个工具、跨项目授权（仍是只读）、存储格式与项目身份。移动只属于管理页，不新增模型工具。
 
 新增/更新的验证：`tests/store.test.ts`（user→项目→项目→user 保真、历史清理、同名拒绝、同范围拒绝、陈旧拒绝、目标旧 tombstone 被显式移动清除）、`tests/management.test.ts`（接口级移动与 `ENOENT`/`INVALID_SCOPE` 边界）、`tests/host-harness.mjs`（真实宿主路由上的移动、409/400 与移动回退）、`tests/ui-browser.mjs`（目标下拉数量、同名冲突报错、成功后落地跳转与截图）、`tests/desktop-browser.mjs`（已安装界面存在移动操作）。
+
+## 12.3 清空一个项目的记忆（0.6.0 实施记录）
+
+0.5.x 只能在编辑器里逐条删除；项目整体重置要么手工删目录，要么留下 `forget` 墓碑与检查点。0.6.0 在管理页的“记忆库”标题栏增加**清空项目记忆**，只作用于项目范围，并强制弹窗确认。
+
+- 入口：选中某个项目后在标题栏出现“清空项目记忆”（用户记忆不出现该按钮——它是跨项目共享的，只能逐条删除）。点击后弹窗显示范围名、项目路径与**将删除的条数**，确认按钮为“确认删除”，取消不做任何改动；有未保存草稿时先走既有的放弃更改确认。
+- 接口：`POST /api/md-memory/reset`，输入 `{scope: 'project', projectId, confirm: true}`；成功返回 `{removed, cancelledExtractions, warnings}`。新增错误码 `CONFIRMATION_REQUIRED`（400，缺 `confirm: true`）、`USER_SCOPE_PROTECTED`（400，目标是用户层）；未知项目沿用 `ENOENT`（404）/`INVALID_PROJECT`（400）。
+- 语义：删除范围目录里**除 `PROJECT.md` 与当前写锁之外的一切**——正文、`history/`、`forgotten/` 墓碑、`transactions/` 残留、`state/` 提炼检查点与任何其它产物——然后重建空的 `MEMORY.md`。`PROJECT.md` 保留，项目身份与页面条目不变；`.write-lock.md` 保留，因为 `withDirectoryLock` 在临界区结束时校验并删除它。符号链接只删除链接本身，绝不跟随，避免经 junction 删到记忆根之外。范围目录锁全程持有，因此清空与其它写入互斥；`moves/` 里待恢复的跨范围日志在取锁前先重放。
+- 提炼：清空会丢掉该项目的提炼检查点，这是“彻底重置”的代价——已绑定会话在下一轮结束时会从头重新提炼**会话历史**，记忆可能被重新生成。因此管理接口在删除前先调用 `ExtractionScheduler.cancelProject` 丢掉该项目排队中的任务（已运行的那一批不打断，仍可能补写），弹窗与完成提示都明说这一后果，并提示可在配置里关闭自动提炼。
+- 不变的部分：模型侧六个工具与跨项目只读授权都没有新增“清空”能力；用户层没有整库清空入口。日志新增 `memory.reset_committed`（store）与 `memory.reset`（管理接口）。
+
+新增/更新的验证：`tests/store.test.ts`（墓碑/修订/检查点与其它产物一并删除、`PROJECT.md` 与空索引保留、其它作用域不受影响、清空后可继续写入、未知产物与 `.pending-*` 临时文件也被清掉）、`tests/management.test.ts`（确认标记必填、用户层拒绝、条数回报、坏项目 `ENOENT`）、`tests/extraction.test.ts`（排队任务按项目丢弃、其它项目不受影响）、`tests/host-harness.mjs`（真实注册路由上的 reset、400/400 拒绝与清空后 `groups` 为空）、`tests/ui-browser.mjs`（弹窗条数、取消不删、用户层无按钮、确认后停用条目一并消失与截图）、`tests/desktop-browser.mjs`（已安装界面存在清空入口与弹窗）。
 
 ## 13. 来源
 

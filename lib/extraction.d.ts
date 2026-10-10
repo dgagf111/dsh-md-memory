@@ -48,6 +48,12 @@ export declare class ExtractionScheduler {
     status(session: string): ExtractionStatus;
     configure(maximum: number, attempts: number): void;
     cancelQueued(): void;
+    /**
+     * Drops the queued extraction of one project whose memory was just erased.
+     * A task already running is not interrupted: it may still commit its current
+     * batch, which the management page reports as a possible late write.
+     */
+    cancelProject(projectId: string): number;
     schedule(task: ExtractionTask): void;
     private launch;
     drain(): Promise<void>;

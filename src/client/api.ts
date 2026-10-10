@@ -26,6 +26,7 @@ export const api = {
   forget: (target: Target, memory: Memory) => request<{ warnings: string[] }>('forget', { ...target, name: memory.name, revision: memory.revision, hash: memory.hash }),
   move: (from: Target, to: Target, memory: Memory) => request<{ memory: Memory; warnings: string[] }>('move',
     { scope: from.scope, projectId: from.projectId, toScope: to.scope, toProjectId: to.projectId, name: memory.name, revision: memory.revision, hash: memory.hash }),
+  reset: (target: Target) => request<{ removed: number; cancelledExtractions: number; warnings: string[] }>('reset', { ...target, confirm: true }),
   settings: (signal?: AbortSignal) => request<SettingsView>('settings', undefined, signal),
   saveSettings: (values: SettingsValues, hash: string) => request<SettingsView>('settings', { values, hash }),
 };
