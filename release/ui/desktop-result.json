@@ -14,7 +14,7 @@
   "enabled": {
     "index": true,
     "body": true,
-    "extraction": true
+    "manualWriteOnly": false
   },
   "grants": 4,
   "sidebar": true,
