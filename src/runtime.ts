@@ -1,9 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { HarnessError, type Message } from '@deepseek-ai/dsh-llm';
-import type { Session } from '@deepseek-ai/dsh-session';
 import { relative, resolve } from 'node:path';
-import type {} from '@deepseek-ai/dsh-session-query';
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools';
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt';
 import { createLogger } from './logging.js';
@@ -13,14 +11,12 @@ import { DEFAULT_SOURCES, USER_SOURCE, handleMap, matchProject, resolveAccess, t
 import { rankMemories, renderIndex, renderBodies, escapeContext, type SourceContext } from './retrieval.js';
 import { extractLinks, resolveLinks, type RelatedLink } from './links.js';
 import { MEMORY_POLICY } from './prompts.js';
-import { ExtractionScheduler, type ExtractionMessage } from './extraction.js';
-import { createCompletion } from './completion.js';
 import { memoryRoot, type PluginConfig } from './config.js';
 import { MemoryError, type Memory, type ProjectIdentity, type RetrievalQuery, type Snapshot, type IndexResult, type VisibleSource } from './types.js';
 
 interface AgentState {
   project?: ProjectIdentity; query: RetrievalQuery; snapshot: Snapshot;
-  index?: IndexResult; bodies: string; turn: number; messages: ExtractionMessage[]; error?: string;
+  index?: IndexResult; bodies: string; turn: number; error?: string;
   access?: ResolvedAccess; handles: Record<string, string>; claimedInputs: string[];
 }
 const output = { schema: { type: 'json' } as const,
@@ -32,16 +28,11 @@ function text(message: Message): string {
   return message.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
 }
 function rootAgent(agent: Agent): boolean { return !agent.session.header.delegationDepth && agent.session.header.origin !== 'subagent'; }
-function headless(): boolean {
-  const args = process.argv.slice(2);
-  return args[0] === 'headless' || args.some((arg, i) => arg === '--profile' && args[i + 1] === 'headless') || args.includes('--profile=headless');
-}
 
 /** DSH adapter; storage and ranking remain independent of the host. */
 export class MemoryRuntime {
   readonly logger;
   readonly store: MemoryStore;
-  readonly scheduler: ExtractionScheduler;
   private states = new Map<string, AgentState>();
   private initializing = new Map<string, Promise<AgentState>>();
   readonly profileConfig: PluginConfig;
@@ -54,14 +45,13 @@ export class MemoryRuntime {
       if (level === 'error') ctx.logger.error(line);
     });
     this.store = new MemoryStore(memoryRoot(config), this.logger);
-    this.scheduler = new ExtractionScheduler(this.store, createCompletion(ctx, config), this.logger, config.extractionMaxOperations, config.extractionAttempts);
   }
   private async initialize(agent: Agent): Promise<AgentState> {
     const id = agent.session.id;
     if (this.initializing.has(id)) return this.initializing.get(id)!;
     if (this.states.has(id)) return this.states.get(id)!;
     const promise = (async () => {
-      const state: AgentState = { query: { current: '', recent: [], touchedPaths: [] }, snapshot: { memories: [], diagnostics: [] }, bodies: '', turn: 0, messages: [], handles: {}, claimedInputs: [] };
+      const state: AgentState = { query: { current: '', recent: [], touchedPaths: [] }, snapshot: { memories: [], diagnostics: [] }, bodies: '', turn: 0, handles: {}, claimedInputs: [] };
       this.states.set(id, state);
       try {
         if (agent.session.header.cwd) {
@@ -70,27 +60,12 @@ export class MemoryRuntime {
         } else this.logger.info({ event: 'project.unbound', session: id, reason: 'session-has-no-cwd' });
         await this.store.recoverAll(state.project);
         await this.refresh(agent, state);
-        if (agent.session.seq > 0) await this.restoreMessages(agent, state);
         this.logger.info({ event: 'session.bound', session: id, project: state.project?.id, cwd: agent.session.header.cwd });
       } catch (error) { this.failed(id, state, error); }
       return state;
     })();
     this.initializing.set(id, promise);
     try { return await promise; } finally { this.initializing.delete(id); }
-  }
-  private async restoreMessages(agent: Agent, state: AgentState): Promise<void> {
-    const query = this.ctx.get('sessionQuery');
-    if (!query) throw new MemoryError('RESUME_REQUIRES_SESSION_QUERY', 'Resume extraction requires the DSH sessionQuery service. Live-session tools remain available.');
-    using observation = await query.observeSession(agent.session.id, { projectionMode: 'none' });
-    const active = new Set(agent.session.deriveMessages().map(m => m.id));
-    let last: { turn: number; seq: number } | undefined;
-    for (const event of observation.events) {
-      if (event.seq < observation.inheritedEventCount) continue;
-      if (event.type === 'user/message' && event.data.source.kind === 'user' && active.has(event.data.id)) state.messages.push({ id: event.data.id, seq: event.seq, role: 'user', text: text(event.data) });
-      else if (event.type === 'assistant/message' && !event.data.interrupted && active.has(event.data.message.id)) state.messages.push({ id: event.data.message.id, seq: event.seq, role: 'assistant', text: text(event.data.message) });
-      else if (event.type === 'turn/end' && event.data.reason.kind === 'completed') last = { turn: event.data.turn, seq: event.seq };
-    }
-    if (last) this.schedule(agent, state, last.turn, last.seq);
   }
   private failed(session: string, state: AgentState, error: unknown): void {
     state.error = error instanceof Error ? error.message : String(error);
@@ -190,14 +165,6 @@ export class MemoryRuntime {
     if (!agent) throw new MemoryError('NO_AGENT', 'Memory tools require an agent session.');
     return { agent, state: await this.ready(agent) };
   }
-  private schedule(agent: Agent, state: AgentState, turn: number, boundary: number): void {
-    if (!this.config.autoExtract || (!this.config.enableInHeadless && headless())) return;
-    const route = agent.session.requestHeader();
-    this.scheduler.schedule({ session: agent.session.id, turn, boundary, project: state.project,
-      messages: [...state.messages], observedAt: new Date().toISOString(),
-      provider: this.config.extractionProvider || route?.config.provider || agent.options.provider,
-      model: this.config.extractionModel || route?.config.model || agent.options.model });
-  }
   install(): void {
     const ctx = this.ctx;
     ctx.systemPrompt.section({ name: 'md-memory-policy', order: 850, interpolate: false,
@@ -231,21 +198,6 @@ export class MemoryRuntime {
       }
       return next();
     });
-    ctx.on('session/event', (session: Session, event) => {
-      const state = this.states.get(session.id);
-      const agent = ctx.agents.get(session.id);
-      if (!state || !agent || !rootAgent(agent)) return;
-      if (event.type === 'user/message' && event.data.source.kind === 'user') {
-        state.messages.push({ id: event.data.id, seq: event.seq, role: 'user', text: text(event.data) });
-      } else if (event.type === 'assistant/message' && !event.data.interrupted) {
-        state.messages.push({ id: event.data.message.id, seq: event.seq, role: 'assistant', text: text(event.data.message) });
-      } else if (event.type === 'turn/end' && event.data.reason.kind === 'completed') {
-        // Derive active messages after replacements: compaction never feeds old synthetic context back into extraction.
-        const active = new Set(session.deriveMessages().map(m => m.id));
-        state.messages = state.messages.filter(m => active.has(m.id as Message['id']));
-        this.schedule(agent, state, event.data.turn, event.seq);
-      }
-    });
     ctx.on('tools/result', (exec, result) => {
       if (!exec.agent || result.isError || exec.name.startsWith('md_memory_')) return;
       const state = this.states.get(exec.agent.session.id);
@@ -256,9 +208,9 @@ export class MemoryRuntime {
       state.query.touchedPaths = [...new Set([...paths, ...state.query.touchedPaths])].slice(0, 12);
     });
     this.tools();
-    ctx.effect(() => async () => { await this.scheduler.stop(); await this.logger.flush(); });
+    ctx.effect(() => async () => { await this.logger.flush(); });
     this.logger.info({ event: 'plugin.started', root: this.store.root, indexBytes: this.config.indexBytes, bodyBytes: this.config.bodyBytes,
-      autoExtract: this.config.autoExtract, autoRecall: this.config.autoRecall, headless: headless() });
+      autoRecall: this.config.autoRecall });
   }
   private tools(): void {
     const ctx = this.ctx;
@@ -330,18 +282,16 @@ export class MemoryRuntime {
           .filter(memory => !args.scope || memory.scope === args.scope)
           .map(memory => ({ scope: memory.scope, name: memory.name, title: memory.title, description: memory.description, revision: memory.revision, project: this.projectInfo(state, memory) })) };
       } }));
-    register(defineTool({ name: 'md_memory_status', description: '查看工作区绑定、可读记忆块、预算、无效文件、后台提取与错误。', parameters: {}, output,
+    register(defineTool({ name: 'md_memory_status', description: '查看工作区绑定、可读记忆块、预算、无效文件与错误。', parameters: {}, output,
       execute: async (_args, exec) => {
-        const { agent, state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
-        const { skipped, ...extraction } = this.scheduler.status(agent.session.id);
+        const { state } = await this.requireAgent(exec.agent); exec.signal.throwIfAborted();
         const visibleSources: VisibleSource[] = [];
         if (state.access ? state.access.user : true) visibleSources.push({ id: USER_SOURCE, label: '用户记忆', kind: 'user' });
         if (state.project) visibleSources.push({ id: state.project.id, label: state.handles[state.project.id] ?? state.project.id, kind: 'own' });
         for (const granted of state.access?.granted ?? []) visibleSources.push({ id: granted.id, label: state.handles[granted.id] ?? granted.id, kind: 'granted' });
         return { root: this.store.root, project: state.project ? { ...state.project } : null, visibleSources, index: state.index ? { ...state.index } : null,
           diagnostics: state.snapshot.diagnostics.map(d => ({ ...d })), contextError: state.error ?? null,
-          extraction: { ...extraction, ...(skipped ? { skipped: skipped.map(item => ({ ...item })) } : {}) },
-          autoExtract: this.config.autoExtract && (this.config.enableInHeadless || !headless()), autoRecall: this.config.autoRecall };
+          autoRecall: this.config.autoRecall };
       } }));
   }
   /** Grants are read-only: no tool may target another project for writing. */

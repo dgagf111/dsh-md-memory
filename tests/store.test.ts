@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStore } from '../src/store.js';
 import { createLogger } from '../src/logging.js';
-import { markdown, encodeMemory, digest } from '../src/codec.js';
+import { markdown, encodeMemory } from '../src/codec.js';
 import { MemoryError, type Logger, type ProjectIdentity, type WriteInput } from '../src/types.js';
 let root: string, store: MemoryStore, logger: Logger;
 const alpha: ProjectIdentity = { id: 'alpha-aaaaaaaaaaaaaaaa', cwd: 'C:/work/alpha', root: 'C:/work/alpha/.git', kind: 'git' };
@@ -52,11 +52,13 @@ describe('Markdown store', () => {
     await store.write(input({ source: { session: 'test', turn: 2, kind: 'explicit-user' } }));
     expect((await store.snapshot()).memories).toHaveLength(1);
   });
-  it('rejects background edits of disabled memories even with a current revision and hash', async () => {
+  it('lets an explicit write update a disabled entry and keeps it disabled', async () => {
     const memory = await store.write(input({ status: 'disabled' }));
-    await expect(store.write(input({ body: '后台不应修改', expectedRevision: memory.revision, expectedHash: memory.hash,
-      source: { session: 'extract', turn: 1, kind: 'extraction' } }))).rejects.toMatchObject({ code: 'DISABLED_MEMORY' });
-    expect((await store.read('user', memory.name)).hash).toBe(memory.hash);
+    const updated = await store.write(input({ body: '停用条目的正文可以更新。', expectedRevision: memory.revision, expectedHash: memory.hash }));
+    expect(updated.status).toBe('disabled');
+    expect(updated.revision).toBe(2);
+    expect((await store.snapshot()).memories).toHaveLength(0);
+    expect((await store.snapshot(undefined, true)).memories[0]?.body).toBe('停用条目的正文可以更新。');
   });
   it('reports malformed files while valid memories remain usable', async () => {
     await store.write(input());
@@ -86,21 +88,6 @@ describe('Markdown store', () => {
     await expect(store.write(input({ body: 'password:\n  abcdefghijklmnopqrstuvwxyz' }))).rejects.toMatchObject({ code: 'SENSITIVE_CONTENT' });
     expect((await store.snapshot()).memories).toHaveLength(0);
     await expect(readFile(join(root, 'user', 'memory-rule.md'))).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-  it('keeps checkpoints constant-sized and never regresses their event watermark', async () => {
-    await store.saveCheckpoint(undefined, 'long-session', { boundary: 500000, lastSuccess: new Date().toISOString() });
-    await store.saveCheckpoint(undefined, 'long-session', { boundary: 40 });
-    expect((await store.checkpoint(undefined, 'long-session')).boundary).toBe(500000);
-    const directory = join(root, 'user', 'state');
-    const content = await readFile(join(directory, (await readdir(directory))[0]!), 'utf8');
-    expect(Buffer.byteLength(content)).toBeLessThan(512);
-  });
-  it('never regresses fragment progress within the same message', async () => {
-    await store.saveCheckpoint(undefined, 'chunk-session', { boundary: 10, offsetSeq: 12, offset: 900, offsetHash: digest('later') });
-    await store.saveCheckpoint(undefined, 'chunk-session', { boundary: 10, offsetSeq: 12, offset: 300, offsetHash: digest('earlier') });
-    expect((await store.checkpoint(undefined, 'chunk-session')).offset).toBe(900);
-    await store.saveCheckpoint(undefined, 'chunk-session', { boundary: 12 });
-    expect(await store.checkpoint(undefined, 'chunk-session')).toEqual({ boundary: 12 });
   });
 });
 
@@ -272,7 +259,7 @@ describe('moving memories between scopes', () => {
 describe('clearing one project scope', () => {
   const inProject = (project: ProjectIdentity, name: string, body = `${name} 的正文。`) => store.write(input({ name, scope: 'project', body }), project);
 
-  it('removes entries, revisions, tombstones and checkpoints while other scopes stay intact', async () => {
+  it('removes entries, revisions, tombstones and legacy artifacts while other scopes stay intact', async () => {
     await store.initializeProject(alpha);
     await store.initializeProject(beta);
     await inProject(alpha, 'forgotten-rule');
@@ -281,7 +268,9 @@ describe('clearing one project scope', () => {
     await inProject(alpha, 'shared-name');
     await inProject(beta, 'shared-name');
     await store.forget('project', 'forgotten-rule', alpha);
-    await store.saveCheckpoint(alpha, 'alpha-session', { boundary: 12 });
+    // A `state/` checkpoint left by a version up to 0.6.0 is just another artifact now.
+    await mkdir(join(root, 'projects', alpha.id, 'state'), { recursive: true });
+    await writeFile(join(root, 'projects', alpha.id, 'state', 'legacy-session.md'), '---\nboundary: 12\n---\n\n# Extraction checkpoint\n');
     await store.write(input({ name: 'user-rule', body: '用户层正文。' }));
 
     // Only the two surviving entry files count; the tombstone is already gone.
@@ -291,7 +280,7 @@ describe('clearing one project scope', () => {
     await expect(store.read('project', 'shared-name', alpha)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readdir(join(root, 'projects', alpha.id, 'forgotten'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readdir(join(root, 'projects', alpha.id, 'history'))).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(store.checkpoint(alpha, 'alpha-session')).resolves.toEqual({ boundary: -1 });
+    await expect(readdir(join(root, 'projects', alpha.id, 'state'))).rejects.toMatchObject({ code: 'ENOENT' });
     // The wiped scope keeps a valid empty index and its identity, not a stale index.
     expect((await readdir(join(root, 'projects', alpha.id))).sort()).toEqual(['MEMORY.md', 'PROJECT.md']);
     expect(await readFile(join(root, 'projects', alpha.id, 'MEMORY.md'), 'utf8')).toBe('# Memory index\n\n\n');

@@ -3,7 +3,6 @@
       name: dsh-md-memory
       config:
         autoRecall: true
-        autoExtract: true
         indexBytes: 1024
         bodyBytes: 12288
         debug: true

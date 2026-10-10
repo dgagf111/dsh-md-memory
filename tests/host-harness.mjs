@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Context } from '@deepseek-ai/cordis';
@@ -18,7 +18,6 @@ const plugin = await import(new URL(process.argv[2] ?? '../lib/index.js', import
 const root = await mkdtemp(join(tmpdir(), 'md-memory-host-'));
 const contexts = [];
 const calls = [];
-const extractionInputs = [];
 const input = { scope: 'project', name: 'manual-rule', title: 'Markdown 存储', description: '选择项目持久化格式时参考', type: 'project', body: '本项目只使用 Markdown 存储。' };
 function response(text) { return [
   { type: 'block-start', index: 0, blockType: 'text' }, { type: 'text-delta', index: 0, text },
@@ -34,17 +33,9 @@ class Adapter extends LlmAdapter {
   async resolveModel(provider, model) { return { provider, id: model, name: model }; }
   async * stream(options) {
     calls.push(options);
-    if (options.system?.startsWith('你是一个后台记忆提取任务')) {
-      assert.equal(options.tools, undefined, 'background extraction has no tools');
-      const data = JSON.parse(options.messages[0].content[0].text);
-      extractionInputs.push(data);
-      assert(data.newMessages.some(m => m.role === 'user' && m.text.includes('Markdown')));
-      yield* response(JSON.stringify({ operations: data.existingMemories.some(m => m.name === 'extracted-rule') ? [] : [{ ...input, name: 'extracted-rule', title: '正文按需召回', description: '构建上下文时参考', body: '正文按需召回，索引预算足够时完整注入。', action: 'write' }] }));
-    } else {
-      this.count++;
-      if (this.count === 1) yield* tool('md_memory_write', input);
-      else yield* response('已记录。');
-    }
+    this.count++;
+    if (this.count === 1) yield* tool('md_memory_write', input);
+    else yield* response('已记录。');
   }
 }
 class LiveQuery extends SessionQueryEngine {
@@ -89,18 +80,16 @@ try {
   const handle = await ctx.agents.create({ sessionId: SessionId('host-root'), meta: { cwd: root }, agentOptions: { provider: 'mock', model: 'mock' } });
   const agent = handle.agent;
   agent.followup(createUserMessage({ content: [{ type: 'text', text: '请记住，本项目使用 Markdown；正文按需召回。' }], source: { kind: 'user' } }));
-  await agent.whenIdle(); await ctx.mdMemory.scheduler.drain();
-  assert.equal((await execute(ctx, agent, 'md_memory_status', {})).extraction.state, 'completed');
+  await agent.whenIdle();
   const entries = (await execute(ctx, agent, 'md_memory_list', {})).entries;
-  assert.equal(entries.length, 2, 'main-agent tool write plus independent background write');
+  assert.equal(entries.length, 1, 'only the agent tool call writes memory');
   const restoreNative = agent.ctx.tools.presentAs('ptc');
   const ptc = await execute(ctx, agent, 'run_code', { code: 'return await tools.md_memory_list({})', description: 'List stored memories' });
-  assert.equal(ptc.result.entries.length, 2, 'PTC sees canonical object values, not native rendered strings');
+  assert.equal(ptc.result.entries.length, 1, 'PTC sees canonical object values, not native rendered strings');
   restoreNative();
-  const mainCalls = calls.filter(c => !c.system?.startsWith('你是一个后台'));
-  assert(mainCalls.length >= 2);
-  assert(JSON.stringify(mainCalls[0].messages).includes('一条主题一条目'));
-  assert(JSON.stringify(mainCalls[1].messages).includes('manual-rule.md'), 'next step refreshes memory context after tool commit');
+  assert(calls.length >= 2, 'the turn itself makes the only model calls');
+  assert(JSON.stringify(calls[0].messages).includes('一条主题一条目'));
+  assert(JSON.stringify(calls[1].messages).includes('manual-rule.md'), 'next step refreshes memory context after tool commit');
   const found = await execute(ctx, agent, 'md_memory_search', { query: 'Markdown' });
   assert(found.entries.some(e => e.name === 'manual-rule'));
   const read = await execute(ctx, agent, 'md_memory_read', { scope: 'project', name: 'manual-rule' });
@@ -126,30 +115,30 @@ try {
   assert.equal(rejected.isError, true, 'revision conflicts surface through host tools');
   assert(JSON.stringify(rejected).includes('REVISION_CONFLICT') || JSON.stringify(rejected).includes('current revision'));
   await execute(ctx, agent, 'md_memory_forget', { scope: 'project', name: 'manual-rule', userRequested: true });
-  assert.equal((await execute(ctx, agent, 'md_memory_list', {})).entries.length, 1);
+  assert.equal((await execute(ctx, agent, 'md_memory_list', {})).entries.length, 0, 'nothing writes memory behind the agent');
+  const workspaceId = (await execute(ctx, agent, 'md_memory_status', {})).project.id;
   const child = await ctx.agents.create({ sessionId: SessionId('host-child'), parentAgent: agent, meta: { cwd: root, origin: 'subagent', delegationDepth: 1 }, agentOptions: { provider: 'mock', model: 'mock' } });
   const childRead = await ctx.tools.execute({ callId: ToolCallId('child-read'), name: 'md_memory_list', arguments: {}, agent: child.agent, signal: new AbortController().signal });
-  assert.equal(childRead.isError, true, 'subagents do not write or extract root memory');
+  assert.equal(childRead.isError, true, 'subagents never get the memory tools');
   await child.dispose();
   const observation = await ctx.sessionQuery.observeSession(agent.session.id, { projectionMode: 'none' });
   const seed = [...observation.events]; observation[Symbol.dispose]();
   await handle.dispose();
-  const beforeResume = extractionInputs.length;
+  const beforeResume = calls.length;
   const resumed = await ctx.agents.create({ sessionId: SessionId('host-root'), seed, meta: { cwd: root }, agentOptions: { provider: 'mock', model: 'mock' } });
-  await ctx.mdMemory.scheduler.drain();
-  assert.equal(extractionInputs.length, beforeResume, 'checkpoint prevents repeat extraction after resume');
+  assert.equal(calls.length, beforeResume, 'resuming a session never calls a model on its own');
+  assert.equal((await execute(ctx, resumed.agent, 'md_memory_list', {})).entries.length, 0, 'the resumed session keeps its workspace binding');
   await resumed.dispose();
   const fork = await ctx.agents.create({ sessionId: SessionId('host-fork'), seed, inheritedEventCount: seed.length,
     meta: { cwd: root, parentSession: SessionId('host-root'), isSeeded: true }, agentOptions: { provider: 'mock', model: 'mock' } });
   fork.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'fork 新决定：继续使用 Markdown。' }], source: { kind: 'user' } }));
-  await fork.agent.whenIdle(); await ctx.mdMemory.scheduler.drain();
-  const lastInput = extractionInputs.at(-1);
-  assert.equal(lastInput.newMessages.filter(m => m.role === 'user').length, 1, 'fork extraction excludes inherited parent user messages');
-  assert(lastInput.newMessages[0].text.includes('fork'));
+  await fork.agent.whenIdle();
+  assert.equal(calls.length, beforeResume + 1, 'a forked turn makes exactly one model call and no background call');
+  assert(JSON.stringify(calls.at(-1)).includes('fork 新决定'), 'the fork sees its own new input');
   await fork.dispose();
-  const disabled = await harness({ autoExtract: false, autoRecall: false });
+  const disabled = await harness({ autoRecall: false });
   const second = await disabled.ctx.agents.create({ sessionId: SessionId('host-next'), meta: { cwd: root }, agentOptions: { provider: 'mock', model: 'mock' } });
-  assert.equal((await execute(disabled.ctx, second.agent, 'md_memory_list', {})).entries.length, 1, 'new session discovers same workspace memory');
+  assert.equal((await execute(disabled.ctx, second.agent, 'md_memory_status', {})).project.id, workspaceId, 'new session discovers same workspace memory');
   await second.dispose();
   // Cross-project reads: opt-in per project, read-only, and reported to the model.
   const otherDir = join(root, 'other-workspace');
@@ -209,7 +198,9 @@ try {
   const resetTarget = { id: 'reset-target-0000000000000000', cwd: join(root, 'reset-workspace'), root: join(root, 'reset-workspace'), kind: 'directory' };
   await ctx.mdMemory.store.initializeProject(resetTarget);
   await ctx.mdMemory.store.write({ ...input, name: 'reset-rule', scope: 'project', body: '将被清空的正文。', source: { kind: 'explicit-user', session: 'harness', turn: 0 } }, resetTarget);
-  await ctx.mdMemory.store.saveCheckpoint(resetTarget, 'reset-session', { boundary: 7 });
+  // A `state/` file written by a version up to 0.6.0 is wiped like any other artifact.
+  await mkdir(join(ctx.mdMemory.store.directory('project', resetTarget), 'state'), { recursive: true });
+  await writeFile(join(ctx.mdMemory.store.directory('project', resetTarget), 'state', 'legacy.md'), '---\nboundary: 7\n---\n');
   const resetRoute = body => api.fetch(new Request('http://localhost/api/md-memory/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
   const unconfirmed = await resetRoute({ scope: 'project', projectId: resetTarget.id });
   assert.equal(unconfirmed.status, 400, 'a project wipe needs the page confirmation');
@@ -221,7 +212,7 @@ try {
   assert.equal(resetResponse.status, 200, await resetResponse.clone().text());
   assert.equal((await resetResponse.json()).removed, 1, 'the wipe reports how many entries it deleted');
   assert.equal((await ctx.mdMemory.store.snapshot(resetTarget)).memories.filter(memory => memory.scope === 'project').length, 0, 'the wiped project reads back empty');
-  assert.equal((await ctx.mdMemory.store.checkpoint(resetTarget, 'reset-session')).boundary, -1, 'the wipe drops extraction checkpoints');
+  await assert.rejects(readdir(join(ctx.mdMemory.store.directory('project', resetTarget), 'state')), { code: 'ENOENT' }, 'the wipe drops legacy state files');
   const groupsAfterReset = await (await api.fetch(new Request('http://localhost/api/md-memory/groups'))).json();
   assert.equal(groupsAfterReset.find(group => group.id === resetTarget.id).entries.length, 0, 'the management page lists the wiped project as empty');
   assert.equal((await ctx.mdMemory.store.project(resetTarget.id)).cwd, resetTarget.cwd, 'PROJECT.md keeps the project identity');
@@ -248,22 +239,18 @@ try {
   await seedRecall('first-recall-rule', 'ZXQNEEDLE', 'FIRST_RECALL_BODY_SENTINEL');
   await seedRecall('second-recall-rule', 'PQRNEWQUERY', 'SECOND_RECALL_BODY_SENTINEL');
   const recallHandle = await ctx.agents.create({ sessionId: SessionId('host-first-recall'), meta: { cwd: root }, agentOptions: { provider: 'mock', model: 'mock' } });
-  const extractionEnabled = ctx.mdMemory.config.autoExtract;
-  ctx.mdMemory.config.autoExtract = false;
   for (const [query, sentinel] of [['ZXQNEEDLE', 'FIRST_RECALL_BODY_SENTINEL'], ['PQRNEWQUERY', 'SECOND_RECALL_BODY_SENTINEL']]) {
     const start = calls.length;
     recallHandle.agent.followup(createUserMessage({ content: [{ type: 'text', text: query }], source: { kind: 'user' } }));
     await recallHandle.agent.whenIdle();
-    const request = calls.slice(start).find(call => !call.system?.startsWith('你是一个后台'));
-    assert(JSON.stringify(request).includes(sentinel), `the first model request for ${query} includes its recalled body`);
+    assert(JSON.stringify(calls[start]).includes(sentinel), `the first model request for ${query} includes its recalled body`);
   }
-  ctx.mdMemory.config.autoExtract = extractionEnabled;
   await recallHandle.dispose();
   await cross.dispose();
   await ctx.mdMemory.logger.flush(); await disabled.ctx.mdMemory.logger.flush();
   const files = await readdir(join(root, 'memories'), { recursive: true, withFileTypes: true });
   assert(files.filter(f => f.isFile()).every(f => f.name.endsWith('.md')));
-  console.log('DSH host contract passed: plugin load, Native/PTC tools, context refresh, background extraction, conflicts, forget, memory moves, project wipe, child isolation, resume/fork, workspace binding and cross-project grants.');
+  console.log('DSH host contract passed: plugin load, Native/PTC tools, context refresh, conflicts, forget, memory moves, project wipe, child isolation, resume/fork, workspace binding and cross-project grants.');
 } finally {
   for (const ctx of contexts.reverse()) await ctx.fiber.dispose();
   await rm(root, { recursive: true, force: true });

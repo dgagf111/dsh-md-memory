@@ -9,7 +9,7 @@ import type { ProjectIdentity } from './types.js';
  * visible and is never listed. A project missing from the matrix falls back to
  * `['user']` (or to the migration default derived from the removed global
  * `recallUser` toggle). Grants are read-only: nothing in this module is consulted
- * by the write, forget or extraction paths.
+ * by the write or forget paths.
  */
 
 export const USER_SOURCE = 'user';

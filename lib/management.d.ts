@@ -27,14 +27,6 @@ export declare class MemoryManagement {
             indexBytes: number;
             bodyBytes: number;
             autoRecall: boolean;
-            autoExtract: boolean;
-            extractionProvider: string;
-            extractionModel: string;
-            extractionTimeoutMs: number;
-            extractionMaxTokens: number;
-            extractionMaxOperations: number;
-            extractionAttempts: number;
-            enableInHeadless: boolean;
             debug: boolean;
             indexEnabled: boolean;
             recallProject: boolean;
@@ -53,14 +45,6 @@ export declare class MemoryManagement {
             indexBytes: number;
             bodyBytes: number;
             autoRecall: boolean;
-            autoExtract: boolean;
-            extractionProvider: string;
-            extractionModel: string;
-            extractionTimeoutMs: number;
-            extractionMaxTokens: number;
-            extractionMaxOperations: number;
-            extractionAttempts: number;
-            enableInHeadless: boolean;
             debug: boolean;
             indexEnabled: boolean;
             recallProject: boolean;
@@ -100,12 +84,11 @@ export declare class MemoryManagement {
     /**
      * Erases one project's whole memory after the page confirmed it. The user scope
      * is never a target: it is shared across projects, so it keeps per-entry
-     * deletion. Entries queued for background extraction in that project are
-     * dropped first, so work scheduled before the reset cannot write it back.
+     * deletion. Nothing writes memory in the background any more, so the wipe is
+     * final until someone explicitly writes or the page saves again.
      */
     reset(data: unknown): Promise<{
         removed: number;
-        cancelledExtractions: number;
         warnings: string[];
     }>;
 }

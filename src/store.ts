@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { assertRegularDirectory, atomicMarkdown, isMissing, readMarkdown, withDirectoryLock } from './files.js';
 import { decodeMemory, digest, encodeMemory, markdown, parseFrontmatter, validateName, validateWrite } from './codec.js';
 import { PROJECT_ID, USER_SOURCE } from './access.js';
-import { MemoryError, type Checkpoint, type Logger, type Memory, type MemoryPlace, type MemoryScope, type ProjectIdentity, type Snapshot, type WriteInput } from './types.js';
+import { MemoryError, type Logger, type Memory, type MemoryPlace, type MemoryScope, type ProjectIdentity, type Snapshot, type WriteInput } from './types.js';
 
 interface Transaction { operation: string; action: 'write' | 'forget'; name: string; expectedHash?: string; content?: string; forgottenAt?: string; }
 interface MoveTransaction {
@@ -108,18 +108,14 @@ export class MemoryStore {
         const previous = await this.optional(path);
         const old = previous ? decodeMemory(previous, input.scope, input.name, path) : undefined;
         if (old?.operationId === operation) return old;
-        if (old?.status === 'disabled' && input.source.kind === 'extraction') {
-          throw new MemoryError('DISABLED_MEMORY', `Background extraction cannot modify disabled memory ${input.name}.`);
-        }
         if (old && (input.expectedRevision !== old.revision || input.expectedHash !== old.hash)) {
           throw new MemoryError('REVISION_CONFLICT', `Read ${input.scope}/${input.name} and supply its current revision and hash before updating.`);
         }
         if (!old && input.expectedRevision !== undefined && input.expectedRevision !== 0) throw new MemoryError('REVISION_CONFLICT', 'Memory no longer exists.');
         const tombstone = await this.optional(join(directory, 'forgotten', `${input.name}.md`));
+        // Only an explicit user request may revive a forgotten name: an inferred
+        // or agent-initiated write must not resurrect what the user deleted.
         if (tombstone && input.source.kind !== 'explicit-user') {
-          const forgotten = String(parseFrontmatter(tombstone).metadata.forgottenAt);
-          if (!input.observedAt || input.observedAt <= forgotten) throw new MemoryError('FORGOTTEN_MEMORY', `Old extraction cannot restore forgotten memory ${input.name}.`);
-          // A later window still needs explicit user intent; automatic inference cannot undo forgetting.
           throw new MemoryError('FORGOTTEN_MEMORY', `Use an explicit write to remember ${input.name} again.`);
         }
         const now = new Date().toISOString();
@@ -160,11 +156,12 @@ export class MemoryStore {
   }
   /**
    * Erases one project's memory as a whole: entries, revision history, forgotten
-   * markers, pending journals and extraction checkpoints. `PROJECT.md` survives,
-   * so the project keeps its identity in the management page, and the index is
-   * rebuilt empty. There is no undo and dropping the checkpoints means a live
-   * session can extract its history again, so only the management page calls
-   * this, after an explicit confirmation; the user scope is never a reset target.
+   * markers, pending journals and anything else left in the scope directory
+   * (including the `state/` checkpoints written by versions up to 0.6.0).
+   * `PROJECT.md` survives, so the project keeps its identity in the management
+   * page, and the index is rebuilt empty. There is no undo, so only the
+   * management page calls this, after an explicit confirmation; the user scope
+   * is never a reset target.
    */
   async reset(project: ProjectIdentity, signal?: AbortSignal): Promise<{ removed: number }> {
     const directory = this.directory('project', project);
@@ -192,7 +189,8 @@ export class MemoryStore {
    * Moves one memory to another scope: user, another project, or this project.
    * Content, name, creation date and revision survive; an existing entry with the
    * same name in the destination is never overwritten. The source keeps a
-   * forgotten marker so background extraction cannot write the old entry back.
+   * forgotten marker, so a later inferred write cannot quietly bring the entry
+   * back into the scope it was moved out of.
    */
   async move(name: string, from: MemoryPlace, to: MemoryPlace, expected?: { revision: number; hash: string }, signal?: AbortSignal): Promise<Memory> {
     validateName(name);
@@ -366,35 +364,5 @@ export class MemoryStore {
         await withDirectoryLock(directory, () => this.recover(directory, scope));
       }
     }
-  }
-  private checkpointPath(project: ProjectIdentity | undefined, session: string): string {
-    const directory = project ? this.directory('project', project) : join(this.root, 'user');
-    return join(directory, 'state', `${digest(session).slice(0, 24)}.md`);
-  }
-  async checkpoint(project: ProjectIdentity | undefined, session: string): Promise<Checkpoint> {
-    const content = await this.optional(this.checkpointPath(project, session));
-    if (!content) return { boundary: -1 };
-    const value = parseFrontmatter(content).metadata as unknown as Checkpoint;
-    if (!Number.isInteger(value.boundary)) throw new MemoryError('INVALID_CHECKPOINT', 'Malformed extraction checkpoint.');
-    if (value.pendingBoundary !== undefined && (!Number.isInteger(value.pendingBoundary) || value.pendingBoundary < value.boundary)) {
-      throw new MemoryError('INVALID_CHECKPOINT', 'Malformed extraction window checkpoint.');
-    }
-    if (value.offset !== undefined && (!Number.isInteger(value.offset) || value.offset < 0
-      || !Number.isInteger(value.offsetSeq) || value.offsetSeq! <= value.boundary
-      || typeof value.offsetHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.offsetHash))) {
-      throw new MemoryError('INVALID_CHECKPOINT', 'Malformed extraction fragment checkpoint.');
-    }
-    return value;
-  }
-  async saveCheckpoint(project: ProjectIdentity | undefined, session: string, checkpoint: Checkpoint): Promise<void> {
-    const path = this.checkpointPath(project, session);
-    const directory = project ? this.directory('project', project) : this.directory('user');
-    await withDirectoryLock(directory, async () => {
-      const prior = await this.checkpoint(project, session);
-      if (prior.boundary > checkpoint.boundary) return;
-      if (prior.boundary === checkpoint.boundary && prior.offsetSeq === checkpoint.offsetSeq
-        && (prior.offset ?? 0) > (checkpoint.offset ?? 0)) return;
-      await atomicMarkdown(path, markdown(checkpoint, '# Extraction checkpoint'));
-    });
   }
 }

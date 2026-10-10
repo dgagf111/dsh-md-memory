@@ -58,7 +58,7 @@ try {
   const settings = await page.request.get(`${origin}/api/md-memory/settings`);
   if (!settings.ok()) throw new Error(`Management settings HTTP ${settings.status()}`);
   const data = await settings.json();
-  await writeFile('release/ui/desktop-result.json', JSON.stringify({ plugin: row, root: data.root, enabled: { index: data.values.indexEnabled, body: data.values.autoRecall, extraction: data.values.autoExtract }, grants: Object.keys(data.values.crossProject ?? {}).length, sidebar: true, library: true, editor: true, move: true, wipe: true, settings: true, crossProject: true }, null, 2));
+  await writeFile('release/ui/desktop-result.json', JSON.stringify({ plugin: row, root: data.root, enabled: { index: data.values.indexEnabled, body: data.values.autoRecall, manualWriteOnly: !('autoExtract' in data.values) }, grants: Object.keys(data.values.crossProject ?? {}).length, sidebar: true, library: true, editor: true, move: true, wipe: true, settings: true, crossProject: true }, null, 2));
   console.log('Installed desktop passed: active plugin, sidebar entry, memory library, editor modified-date header, move action, whole-project wipe with confirmation, configuration page and cross-project access section.');
 } finally { await browser.close(); }
 

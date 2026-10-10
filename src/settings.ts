@@ -14,8 +14,14 @@ import { MemoryError } from './types.js';
  * absent from the matrix now defaults to `DEFAULT_SOURCES`. A legacy
  * `recallUser: false` is honoured once as that default, so user memory does not
  * silently come back for installs that had switched it off.
+ *
+ * The background-extraction keys were removed in 0.7.0 together with the
+ * feature: memory is now only written by an explicit `md_memory_write` /
+ * `md_memory_forget` call or from the memory page. An install that still has
+ * those keys in SETTINGS.md keeps loading, and the first save drops them.
  */
-export const LEGACY_SETTINGS = ['recallUser'] as const;
+export const LEGACY_SETTINGS = ['recallUser', 'autoExtract', 'extractionProvider', 'extractionModel', 'extractionTimeoutMs',
+  'extractionMaxTokens', 'extractionMaxOperations', 'extractionAttempts', 'enableInHeadless'] as const;
 
 export function stripLegacy(values: Record<string, unknown>): Record<string, unknown> {
   const clean: Record<string, unknown> = {};

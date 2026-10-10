@@ -17,7 +17,7 @@ const ctx = new Context();
 ctx.provide('agents', { list: () => [] });
 const connection = new HostConnectionService(ctx, [], {});
 const apiHandler = connection.createSharedFetchHandler('/api');
-const runtime = new MemoryRuntime(ctx, Config({ memoryDir: root, autoExtract: false }));
+const runtime = new MemoryRuntime(ctx, Config({ memoryDir: root }));
 // Use the registered API implementation with fixture service providers; no model call is needed.
 const managementBundle = await build({ entryPoints: ['src/management.ts'], bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false });
 const moduleFile = join(output, 'management-fixture.mjs'); await writeFile(moduleFile, managementBundle.outputFiles[0].text);
@@ -141,7 +141,8 @@ try {
   await page.getByLabel('自动召回相关正文').uncheck();
   await page.getByLabel('自动注入的短索引预算').fill('8');
   await page.getByRole('button', { name: '记忆写入', exact: true }).click();
-  await page.getByLabel('请求超时').fill('30.001');
+  assert((await page.locator('.mm-config-section').innerText()).includes('不会自动从对话里提炼记忆'), 'The write category states that nothing is extracted in the background');
+  assert(await page.getByLabel('后台自动提炼', { exact: true }).count() === 0, 'The removed extraction switches are gone');
   await page.getByRole('button', { name: '维护', exact: true }).click();
   await page.getByLabel('详细日志').uncheck();
   await page.getByRole('button', { name: '召回', exact: true }).click();
@@ -149,7 +150,7 @@ try {
   assert(await page.getByLabel('自动注入的短索引预算').isDisabled(), 'Settings stay writable while saving');
   await page.getByRole('status').filter({ hasText: '配置已保存并生效' }).waitFor();
   assert(runtime.config.indexBytes === 8192 && !runtime.config.autoRecall, 'UI settings not applied');
-  assert(runtime.config.extractionTimeoutMs === 30001 && !runtime.config.debug, 'Cross-category settings or unit conversion changed semantics');
+  assert(!runtime.config.debug, 'Cross-category settings or unit conversion changed semantics');
   // Cross-project access: one card per project, explicit matrix, read-only wording.
   await page.getByRole('heading', { name: '跨项目访问', exact: true }).waitFor();
   await page.getByLabel('过滤项目').fill('dsh-md-memory');

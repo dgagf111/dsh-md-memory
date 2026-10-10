@@ -14,12 +14,13 @@ const withSettings = (settings: object) => writeFile(join(root, 'SETTINGS.md'), 
 const base = () => Config({ memoryDir: root });
 
 describe('legacy settings', () => {
-  it('lists exactly the removed global toggles', () => {
-    expect([...LEGACY_SETTINGS]).toEqual(['recallUser']);
+  it('lists every removed settings key', () => {
+    expect([...LEGACY_SETTINGS]).toEqual(['recallUser', 'autoExtract', 'extractionProvider', 'extractionModel', 'extractionTimeoutMs',
+      'extractionMaxTokens', 'extractionMaxOperations', 'extractionAttempts', 'enableInHeadless']);
   });
 
   it('drops legacy keys while keeping every current value', () => {
-    expect(stripLegacy({ recallUser: false, bodyBytes: 4096, crossProject: {} })).toEqual({ bodyBytes: 4096, crossProject: {} });
+    expect(stripLegacy({ recallUser: false, autoExtract: false, extractionModel: 'old-model', bodyBytes: 4096, crossProject: {} })).toEqual({ bodyBytes: 4096, crossProject: {} });
   });
 
   it('keeps the legacy key in the raw snapshot so the loader can migrate it', async () => {

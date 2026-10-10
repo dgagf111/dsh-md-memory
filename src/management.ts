@@ -51,8 +51,6 @@ export class MemoryManagement {
   }
   private applyConfig(config: PluginConfig): void {
     Object.assign(this.runtime.config, config);
-    this.runtime.scheduler.configure(config.extractionMaxOperations, config.extractionAttempts);
-    if (!config.autoExtract) this.runtime.scheduler.cancelQueued();
   }
   async updateSettings(values: unknown, hash: string) {
     const registry = await this.runtime.store.projects();
@@ -109,8 +107,8 @@ export class MemoryManagement {
   /**
    * Erases one project's whole memory after the page confirmed it. The user scope
    * is never a target: it is shared across projects, so it keeps per-entry
-   * deletion. Entries queued for background extraction in that project are
-   * dropped first, so work scheduled before the reset cannot write it back.
+   * deletion. Nothing writes memory in the background any more, so the wipe is
+   * final until someone explicitly writes or the page saves again.
    */
   async reset(data: unknown) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new MemoryError('INVALID_INPUT', 'Reset request must be an object.');
@@ -118,11 +116,10 @@ export class MemoryManagement {
     if (input.confirm !== true) throw new MemoryError('CONFIRMATION_REQUIRED', 'Clearing a project requires the page confirmation.');
     if (input.scope === 'user') throw new MemoryError('USER_SCOPE_PROTECTED', 'User memory is shared across projects; delete its entries one by one instead.');
     const project = (await this.target(input.scope, input.projectId)).project!;
-    const cancelledExtractions = this.runtime.scheduler.cancelProject(project.id);
     const { removed } = await this.runtime.store.reset(project);
     const warnings = await this.runtime.refreshAll();
-    this.runtime.logger.info({ event: 'memory.reset', project: project.id, removed, cancelledExtractions, warnings });
-    return { removed, cancelledExtractions, warnings };
+    this.runtime.logger.info({ event: 'memory.reset', project: project.id, removed, warnings });
+    return { removed, warnings };
   }
 }
 export function registerManagement(ctx: Context, runtime: MemoryRuntime): void {

@@ -66,15 +66,12 @@ export function Settings({ view, values, setValues, save, reset, busy, dirty, pr
           : <ul className="mm-access-list">{visibleProjects.map(accessCard)}{visibleProjects.length === 0 && <p className="mm-note">没有匹配的项目。</p>}</ul>}
       </div>
     </div></section>}
-    {category === 'write' && <section className="mm-config-section"><div><h2>记忆写入</h2><p>主动保存与成功轮后的后台提炼。</p></div><div>
-      {toggle('autoExtract', '后台自动提炼', '根会话成功完成一轮后提取持久信息。关闭后不再调度新任务；已开始的任务会完成。')}
-      {toggle('enableInHeadless', '允许 Headless 自动提炼', '用于命令行部署；桌面版通常无需开启。')}
-      <div className="mm-numbers">{number('extractionMaxTokens', '模型输出上限', '限制一次提炼的输出', 256, 16384, 'tokens')}{number('extractionMaxOperations', '每次写入上限', '一轮提炼最多提交的记忆条目', 1, 20, '条')}{number('extractionTimeoutMs', '请求超时', '后台模型调用的最长等待时间', 1000, 120000, '秒', 1000)}{number('extractionAttempts', '尝试次数', '失败时最多尝试次数', 1, 3, '次')}</div>
-      <div className="mm-model-fields"><label>提炼 Provider<input value={values.extractionProvider} placeholder="跟随当前会话" onChange={event => setValues({ ...values, extractionProvider: event.target.value })}/></label><label>提炼模型<input value={values.extractionModel} placeholder="跟随当前会话" onChange={event => setValues({ ...values, extractionModel: event.target.value })}/></label></div>
-      <p className="mm-note">留空时沿用会话模型。指定模型时填写 DSH 中的准确 Provider 与模型 ID。</p>
+    {category === 'write' && <section className="mm-config-section"><div><h2>记忆写入</h2><p>只有显式写入才会落盘，没有后台提炼。</p></div><div>
+      <p className="mm-note">插件不会自动从对话里提炼记忆：只有 Agent 在同一轮里主动调用 <code>md_memory_write</code> / <code>md_memory_forget</code>，或者你在这个页面手动保存时，记忆才会写入、更新或删除。这里没有可以调节的开关。</p>
+      <p className="mm-note">想让某条约定长期保留，就在对话里明确要求保存；删除过的条目也不会被任何自动流程写回来。</p>
     </div></section>}
     {category === 'maintenance' && <section className="mm-config-section"><div><h2>维护与存储</h2><p>文件透明可查，错误明确可见。</p></div><div>
-      {toggle('debug', '详细日志', '记录召回评分、选择结果与提炼调度，不记录原始对话或记忆正文。')}
+      {toggle('debug', '详细日志', '记录召回评分与选择结果，不记录原始对话或记忆正文。')}
       <dl className="mm-storage"><dt>记忆目录</dt><dd>{view.root}</dd><dt>页面配置</dt><dd>{view.root}/SETTINGS.md</dd><dt>运行日志</dt><dd>{view.root}/logs</dd></dl>
       <p className="mm-note">目录由 DSH 插件配置决定。保存后立即生效，现有会话在下一次模型请求时使用更新后的上下文。</p>
     </div></section>}

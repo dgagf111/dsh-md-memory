@@ -18,7 +18,7 @@ const input = (scope: 'user' | 'project' = 'user'): WriteInput => ({ scope, name
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'md-memory-management-')); config = Config({ memoryDir: root });
   store = new MemoryStore(root, createLogger(root));
-  manager = new MemoryManagement({ store, config, profileConfig: { ...config }, logger: store.logger, scheduler: { configure() {}, cancelQueued() {}, cancelProject: () => 0 }, refreshAll: async () => [] } as unknown as MemoryRuntime);
+  manager = new MemoryManagement({ store, config, profileConfig: { ...config }, logger: store.logger, refreshAll: async () => [] } as unknown as MemoryRuntime);
 });
 afterEach(async () => { await store.logger.flush(); await rm(root, { recursive: true, force: true }); });
 it('browses and edits an inactive project and retains disabled entries for management', async () => {
@@ -83,7 +83,7 @@ it('clears one project through the management API but never the shared user scop
   await expect(manager.reset({ scope: 'project', projectId: 'missing-project', confirm: true })).rejects.toMatchObject({ code: 'ENOENT' });
   expect((await store.snapshot(project)).memories.filter(memory => memory.scope === 'project')).toHaveLength(2);
 
-  await expect(manager.reset({ scope: 'project', projectId: project.id, confirm: true })).resolves.toMatchObject({ removed: 2, cancelledExtractions: 0, warnings: [] });
+  await expect(manager.reset({ scope: 'project', projectId: project.id, confirm: true })).resolves.toMatchObject({ removed: 2, warnings: [] });
   expect((await store.snapshot(project)).memories.filter(memory => memory.scope === 'project')).toHaveLength(0);
   expect((await manager.groups()).find(group => group.id === project.id)?.entries).toEqual([]);
   expect((await store.snapshot(other)).memories.filter(memory => memory.scope === 'project').map(memory => memory.name)).toEqual(['other-rule']);
@@ -92,16 +92,29 @@ it('clears one project through the management API but never the shared user scop
 });
 it('persists settings only as Markdown, applies all options live, and detects another window', async () => {
   const before = await manager.settings();
-  const saved = await manager.updateSettings({ ...before.values, autoRecall: false, indexEnabled: false, extractionMaxOperations: 9, debug: false }, before.hash);
+  const saved = await manager.updateSettings({ ...before.values, autoRecall: false, indexEnabled: false, bodyLimit: 9, debug: false }, before.hash);
   expect(config.autoRecall).toBe(false);
   expect(config.indexEnabled).toBe(false);
   expect(saved.hash).not.toBe('');
-  expect((await loadSettings(Config({ memoryDir: root }))).extractionMaxOperations).toBe(9);
+  expect((await loadSettings(Config({ memoryDir: root }))).bodyLimit).toBe(9);
   await expect(manager.updateSettings(before.values, before.hash)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
   await expect(manager.updateSettings({ memoryDir: '../other' }, saved.hash)).rejects.toMatchObject({ code: 'INVALID_SETTINGS' });
   expect(await readFile(join(root, 'SETTINGS.md'), 'utf8')).toContain('autoRecall: false');
   const files = await readdir(root, { recursive: true, withFileTypes: true });
   expect(files.filter(file => file.isFile()).every(file => file.name.endsWith('.md'))).toBe(true);
+});
+it('keeps loading settings written before the background extraction was removed, then drops those keys', async () => {
+  await atomicMarkdown(join(root, 'SETTINGS.md'), markdown({ settings: { autoRecall: false, autoExtract: false, extractionProvider: 'old', extractionModel: 'old-model',
+    extractionTimeoutMs: 45000, extractionMaxTokens: 2048, extractionMaxOperations: 9, extractionAttempts: 3, enableInHeadless: true } }, '# Legacy settings'));
+  const view = await manager.settings();
+  expect(view.values.autoRecall).toBe(false);
+  expect('autoExtract' in view.values).toBe(false);
+  const saved = await manager.updateSettings({ ...view.values, bodyLimit: 3 }, view.hash);
+  expect(saved.values.bodyLimit).toBe(3);
+  const content = await readFile(join(root, 'SETTINGS.md'), 'utf8');
+  expect(content).not.toContain('autoExtract');
+  expect(content).not.toContain('extraction');
+  expect((await loadSettings(Config({ memoryDir: root }))).autoRecall).toBe(false);
 });
 it('pairs externally edited settings with their own hash and applies that snapshot', async () => {
   const before = await manager.settings();

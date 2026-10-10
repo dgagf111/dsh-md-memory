@@ -1,4 +1,4 @@
-import { mkdir, writeFile, cp } from 'node:fs/promises';
+import { mkdir, writeFile, cp, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { spawn } from 'node:child_process';
 const versions = [{ name: 'rc', dsh: '0.2.0-rc.2', cordis: '4.0.4' }, { name: 'alpha', dsh: '0.2.1-alpha.1', cordis: '4.0.5-alpha.1' }];
@@ -19,6 +19,10 @@ for (const version of versions) {
   dependencies.react = '19.3.0'; dependencies['@types/react'] = '19.3.0';
   for (const name of packages) dependencies[`@deepseek-ai/dsh-${name}`] = version.dsh;
   await writeFile(join(directory, 'package.json'), JSON.stringify({ name: `md-memory-contract-${version.name}`, private: true, type: 'module', dependencies }, null, 2));
+  // Copy into a clean tree: a file deleted from the repository must not survive
+  // in `.compat/` and get type-checked again.
+  await rm(join(directory, 'src'), { recursive: true, force: true });
+  await rm(join(directory, 'plugin'), { recursive: true, force: true });
   await cp('lib', join(directory, 'plugin', 'lib'), { recursive: true });
   await cp('src', join(directory, 'src'), { recursive: true });
   await writeFile(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: {

@@ -4,14 +4,6 @@ export interface PluginConfig {
     indexBytes: number;
     bodyBytes: number;
     autoRecall: boolean;
-    autoExtract: boolean;
-    extractionProvider: string;
-    extractionModel: string;
-    extractionTimeoutMs: number;
-    extractionMaxTokens: number;
-    extractionMaxOperations: number;
-    extractionAttempts: number;
-    enableInHeadless: boolean;
     debug: boolean;
     indexEnabled: boolean;
     recallProject: boolean;

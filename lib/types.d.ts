@@ -1,6 +1,12 @@
 export type MemoryScope = 'user' | 'project';
 export type MemoryType = 'user' | 'feedback' | 'project' | 'reference';
-/** Which memory block an entry came from: the user scope, this session's project, or a granted project. */
+/**
+ * Which memory block an entry came from: the user scope, this session's project, or a granted project.
+ *
+ * `extraction` is no longer produced (background extraction was removed in
+ * 0.7.0); it stays accepted so libraries written by older versions keep
+ * loading and updating.
+ */
 export type MemoryOrigin = 'user' | 'own' | 'granted';
 export interface MemorySource {
     session: string;
@@ -52,7 +58,6 @@ export interface WriteInput {
     expectedRevision?: number;
     expectedHash?: string;
     operationId?: string;
-    observedAt?: string;
 }
 export interface ProjectIdentity {
     id: string;
@@ -112,23 +117,6 @@ export interface Logger {
     info(record: LogRecord): void;
     error(record: LogRecord, error?: unknown): void;
     flush(): Promise<void>;
-}
-export interface Checkpoint {
-    boundary: number;
-    lastSuccess?: string;
-    lastError?: string;
-    /**
-     * Raw UTF-8 bytes of the first message after `boundary` whose content was
-     * already committed, so an oversized window resumes mid-message instead of
-     * skipping it or extracting it twice. Absent (or 0) on legacy checkpoints.
-     */
-    offset?: number;
-    /** Sequence number of the message `offset` belongs to. */
-    offsetSeq?: number;
-    /** Digest of the committed prefix; a changed window restarts instead of skipping text. */
-    offsetHash?: string;
-    /** End of a user-triggered window still being processed across batches. */
-    pendingBoundary?: number;
 }
 export declare class MemoryError extends Error {
     readonly code: string;

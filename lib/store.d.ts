@@ -1,4 +1,4 @@
-import { type Checkpoint, type Logger, type Memory, type MemoryPlace, type MemoryScope, type ProjectIdentity, type Snapshot, type WriteInput } from './types.js';
+import { type Logger, type Memory, type MemoryPlace, type MemoryScope, type ProjectIdentity, type Snapshot, type WriteInput } from './types.js';
 /** Every project directory known to this memory root, valid ones and broken ones. */
 export interface ProjectRegistry {
     projects: ProjectIdentity[];
@@ -28,11 +28,12 @@ export declare class MemoryStore {
     }): Promise<void>;
     /**
      * Erases one project's memory as a whole: entries, revision history, forgotten
-     * markers, pending journals and extraction checkpoints. `PROJECT.md` survives,
-     * so the project keeps its identity in the management page, and the index is
-     * rebuilt empty. There is no undo and dropping the checkpoints means a live
-     * session can extract its history again, so only the management page calls
-     * this, after an explicit confirmation; the user scope is never a reset target.
+     * markers, pending journals and anything else left in the scope directory
+     * (including the `state/` checkpoints written by versions up to 0.6.0).
+     * `PROJECT.md` survives, so the project keeps its identity in the management
+     * page, and the index is rebuilt empty. There is no undo, so only the
+     * management page calls this, after an explicit confirmation; the user scope
+     * is never a reset target.
      */
     reset(project: ProjectIdentity, signal?: AbortSignal): Promise<{
         removed: number;
@@ -41,7 +42,8 @@ export declare class MemoryStore {
      * Moves one memory to another scope: user, another project, or this project.
      * Content, name, creation date and revision survive; an existing entry with the
      * same name in the destination is never overwritten. The source keeps a
-     * forgotten marker so background extraction cannot write the old entry back.
+     * forgotten marker, so a later inferred write cannot quietly bring the entry
+     * back into the scope it was moved out of.
      */
     move(name: string, from: MemoryPlace, to: MemoryPlace, expected?: {
         revision: number;
@@ -56,7 +58,4 @@ export declare class MemoryStore {
     private recover;
     private rebuildIndex;
     recoverAll(project?: ProjectIdentity): Promise<void>;
-    private checkpointPath;
-    checkpoint(project: ProjectIdentity | undefined, session: string): Promise<Checkpoint>;
-    saveCheckpoint(project: ProjectIdentity | undefined, session: string, checkpoint: Checkpoint): Promise<void>;
 }

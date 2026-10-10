@@ -2,7 +2,6 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { MemoryStore } from './store.js';
 import { type ResolvedAccess } from './access.js';
-import { ExtractionScheduler, type ExtractionMessage } from './extraction.js';
 import { type PluginConfig } from './config.js';
 import { type ProjectIdentity, type RetrievalQuery, type Snapshot, type IndexResult } from './types.js';
 interface AgentState {
@@ -12,7 +11,6 @@ interface AgentState {
     index?: IndexResult;
     bodies: string;
     turn: number;
-    messages: ExtractionMessage[];
     error?: string;
     access?: ResolvedAccess;
     handles: Record<string, string>;
@@ -24,7 +22,6 @@ export declare class MemoryRuntime {
     readonly config: PluginConfig;
     readonly logger: import("./types.js").Logger;
     readonly store: MemoryStore;
-    readonly scheduler: ExtractionScheduler;
     private states;
     private initializing;
     readonly profileConfig: PluginConfig;
@@ -32,7 +29,6 @@ export declare class MemoryRuntime {
     legacySources: string[];
     constructor(ctx: Context, config: PluginConfig, profileConfig?: PluginConfig, legacySources?: readonly string[]);
     private initialize;
-    private restoreMessages;
     private failed;
     /**
      * Re-resolves the readable memory blocks and rebuilds the injected context.
@@ -64,7 +60,6 @@ export declare class MemoryRuntime {
         agent: Agent;
         state: AgentState;
     }>;
-    private schedule;
     install(): void;
     private tools;
     /** Grants are read-only: no tool may target another project for writing. */

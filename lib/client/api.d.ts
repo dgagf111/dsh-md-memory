@@ -35,7 +35,6 @@ export declare const api: {
     }>;
     reset: (target: Target) => Promise<{
         removed: number;
-        cancelledExtractions: number;
         warnings: string[];
     }>;
     settings: (signal?: AbortSignal) => Promise<SettingsView>;
