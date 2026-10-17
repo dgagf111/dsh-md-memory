@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context } from '@deepseek-ai/cordis';
 import LlmRuntime, { LlmAdapter, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session';
@@ -13,6 +15,23 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop';
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query';
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime';
 import { HostConnectionService } from '@deepseek-ai/dsh-client-connection';
+
+// DSH 0.2.1 made the session working directory a service and the tool runtime
+// refuses run_code for an Agent without it; 0.2.0 has neither package. Both are
+// taken from the node_modules tree that installed the dsh-tools this harness
+// imported — a copy found by walking further up (the plugin checkout, when this
+// runs inside a compat directory) belongs to another host version and is refused.
+async function optional(specifier) {
+  try {
+    const tools = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-tools/package.json'));
+    const root = tools.slice(0, tools.lastIndexOf('node_modules') + 'node_modules'.length);
+    const resolved = createRequire(join(root, 'noop.js')).resolve(specifier);
+    if (!resolved.startsWith(root)) return undefined;
+    return (await import(pathToFileURL(resolved).href)).default;
+  } catch { return undefined; }
+}
+const WorkingDirectory = await optional('@deepseek-ai/dsh-working-directory');
+const LocalFileSystem = await optional('@deepseek-ai/dsh-fs-local');
 
 const plugin = await import(new URL(process.argv[2] ?? '../lib/index.js', import.meta.url).href);
 const root = await mkdtemp(join(tmpdir(), 'md-memory-host-'));
@@ -55,14 +74,20 @@ class ContractPtc extends PtcRuntime {
 async function harness(config = {}) {
   const ctx = new Context(); contexts.push(ctx);
   await ctx.plugin(LlmRuntime); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjectionRegistry);
-  await ctx.plugin(SystemPrompt); await ctx.plugin(ContractPtc); await ctx.plugin(ToolRuntime); await ctx.plugin(AgentRegistry); await ctx.plugin(LiveQuery);
+  await ctx.plugin(SystemPrompt); await ctx.plugin(ContractPtc);
+  if (LocalFileSystem) await ctx.plugin(LocalFileSystem);
+  if (WorkingDirectory) await ctx.plugin(WorkingDirectory, { defaultDirectory: root });
+  await ctx.plugin(ToolRuntime); await ctx.plugin(AgentRegistry); await ctx.plugin(LiveQuery);
   await ctx.plugin(AgentLoop, { agents: [] });
   ctx.llm.registerAdapter(['mock'], new Adapter());
   const connection = new HostConnectionService(ctx, [], {});
   await ctx.plugin(plugin, { memoryDir: join(root, 'memories'), debug: true, ...config });
   for (const runtime of ctx.registry.values()) for (const fiber of runtime.fibers) await fiber.await();
   assert(ctx.mdMemory, 'named Cordis plugin loads with Config and inject exports');
-  const api = connection.createSharedFetchHandler('/api');
+  // 0.2.1 hands the admitted Peer to every shared-channel request; 0.2.0 ignores it.
+  const handler = connection.createSharedFetchHandler('/api');
+  const peer = connection.browserPeer ?? connection.operator;
+  const api = { fetch: request => handler.fetch(request, peer) };
   const settings = await api.fetch(new Request('http://localhost/api/md-memory/settings'));
   assert.equal(settings.status, 200, 'management routes survive real DSH exact-path registration');
   const saved = await settings.json();

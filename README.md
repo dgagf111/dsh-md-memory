@@ -2,7 +2,9 @@
 
 DeepSeek Harness 的 Markdown 记忆插件。用户偏好、项目约定、索引、修订、事务与日志全部存为 `.md` 文件。
 
-兼容 **DSH 0.2.0-rc.2 与 0.2.1-alpha.1**。两个版本使用同一套代码与数据格式。
+兼容 **DSH 0.2.0-rc.2、0.2.1-alpha.1 与 0.2.1-rc.1**（`engines.dsh: >=0.2.0-rc.2 <0.3.0-0`）。这几个版本使用同一套代码与数据格式。
+
+> 0.8.1 修复了 0.8.0 在 **0.2.1-rc.1** 上被宿主判为不兼容、整行插件被禁用的问题：旧版 peer 范围写死 `0.2.0-rc.2 || 0.2.1-alpha.1`，而 0.2.1-rc.1 都不在其中。现在改成兼容范围，并由 `engines.dsh` 单独声明支持的宿主版本。
 
 ## 记忆行为
 
@@ -40,7 +42,7 @@ dsh plugin --profile desktop add github:dgagf111/dsh-md-memory
 npm ci
 npm run check        # typecheck + 单测 + 构建
 npm run test:host    # 真实宿主契约
-npm run test:compat  # RC 与 Alpha 双版本
+npm run test:compat  # RC / Alpha / 0.2.1-rc.1 三版本
 npm pack             # 产出 release/dsh-md-memory-<版本>.tgz
 ```
 
@@ -49,6 +51,8 @@ npm pack             # 产出 release/dsh-md-memory-<版本>.tgz
 宿主侧代码（`lib/index.js`）只在进程启动时加载，升级后需要重启 DSH；只有客户端界面改动可以靠刷新记忆页面生效。
 
 包自带 `dsh.bundle.patch` 元数据和 `cordis.patch.yml`，安装后插入 `md-memory` 配置行。插件依赖宿主的 tools、systemPrompt、agents、sessions 服务；不再需要 llm 或 sessionQuery。标准 RC/Alpha 宿主都提供这些服务。
+
+宿主装载前会先读 `package.json` 判断兼容性：只要**声明了** `engines.dsh`，就由它单独决定，`peerDependencies` 不再参与判断；没声明时才会逐个检查 `@deepseek-ai/dsh*` peer。0.8.1 两条都写成兼容范围（`engines.dsh: >=0.2.0-rc.2 <0.3.0-0`），所以 0.2.0-rc.2 / 0.2.1-alpha.1 / 0.2.1-rc.1 都能直接装载，不需要 `dsh plugin allow-version` 的逐版本豁免。
 
 如果已有其他自动记忆插件，先在同一 profile 停用其注入与自动提炼，避免重复写入。原来的记忆文件不会自动导入。
 

@@ -17,6 +17,8 @@ const ctx = new Context();
 ctx.provide('agents', { list: () => [] });
 const connection = new HostConnectionService(ctx, [], {});
 const apiHandler = connection.createSharedFetchHandler('/api');
+// 0.2.1 requires the admitted Peer on every shared-channel request; 0.2.0 has no such argument.
+const peer = connection.browserPeer ?? connection.operator;
 const runtime = new MemoryRuntime(ctx, Config({ memoryDir: root }));
 // Use the registered API implementation with fixture service providers; no model call is needed.
 const managementBundle = await build({ entryPoints: ['src/management.ts'], bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false });
@@ -45,7 +47,7 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url, origin);
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     if (req.method === 'POST') await new Promise(resolve => setTimeout(resolve, 350));
-    const response = await apiHandler.fetch(new Request(url, { method: req.method, ...(req.method === 'GET' ? {} : { body: Buffer.concat(chunks) }) }));
+    const response = await apiHandler.fetch(new Request(url, { method: req.method, ...(req.method === 'GET' ? {} : { body: Buffer.concat(chunks) }) }), peer);
     res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer()));
   } catch (error) { res.writeHead(500); res.end(String(error)); }
 });

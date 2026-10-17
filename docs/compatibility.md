@@ -1,11 +1,21 @@
 # 接口与验证
 
-兼容矩阵核对于 2026-10-09：CLI 的 latest/next 为 `0.2.0-rc.2`，alpha 为 `0.2.1-alpha.1`。各组件的 npm latest 可能滞后，兼容脚本始终安装明确版本。
+兼容矩阵核对于 2026-10-17：CLI 的 latest/next 为 `0.2.0-rc.2`，alpha 为 `0.2.1-alpha.1`，桌面端当前版本为 `0.2.1-rc.1`。各组件的 npm latest 可能滞后，兼容脚本始终安装明确版本。
 
 | DSH | Cordis | 源码基线 |
 |---|---|---|
 | 0.2.0-rc.2 | 4.0.4 | dsh-v0.2.0-rc.2 / 639ed015397290b3745d163aafe02ffee4aa3f84 |
 | 0.2.1-alpha.1 | 4.0.5-alpha.1 | dsh-v0.2.1-alpha.1 / 5badb15009ae1756c3afe0ae0cef1faafc290ccc |
+| 0.2.1-rc.1 | 4.0.5 | 桌面端 0.2.1-rc.1 随包发布，无公开源码 tag |
+
+## 宿主兼容判定
+
+宿主装载每个插件行前读取它的 `package.json`（`evaluatePluginCompatibility`）：**有 `engines.dsh` 就只看它**，`peerDependencies` 整组忽略；没有 `engines.dsh` 时才逐个检查 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` peer。任一条不满足，该行会被整行禁用（`dsh: disabling profile plugin row ...`），只装不动就等于插件不存在。
+
+0.8.0 及更早版本只声明了 peer，范围是 `0.2.0-rc.2 || 0.2.1-alpha.1` 这种**精确版本枚举**，于是 0.2.1-rc.1 被判为不兼容、整行禁用——这是 0.8.1 修复的兼容性缺陷。0.8.1 改为：
+
+- `engines.dsh: ">=0.2.0-rc.2 <0.3.0-0"`：0.2 线上任何 rc/alpha/正式版都通过，0.3.0 的预发布版本（`0.3.0-rc.1`）也被正确拒绝。
+- `peerDependencies` 改为 `^0.2.0-rc.2`（Cordis `^4.0.4`）：作为 npm 侧安装提示仍能解析到 0.2.1-rc.1，同时不再把宿主卡在枚举版本上。
 
 ## 使用的公开接口
 
@@ -15,7 +25,9 @@
 - `agent/inbox/claimed`：在宿主组装上下文之前捕获本次真实用户输入。
 - `system-prompt/assemble`：每次请求重新扫描、排名并更新本次组装的索引和正文；首次请求即可使用当前问题的召回。
 - `tools.register(defineTool(...))`：规范 JSON 值与 Native 渲染，PTC 直接接收规范值。
+- `connection.fetch.register()`：管理接口。0.2.1 起共享 Fetch 处理器把 `fetch(request, peer)` 交给连接层调用，插件注册的路由签名（只收 `Request`）未变；`createSharedFetchHandler()` 的调用方（宿主、测试）需要传入 `peer`。
 - 0.7.0 起不再使用宿主的 `llm` 与 `sessionQuery` 服务，也不监听 `session/event`；后台提炼连同它需要的公开接口一起移除，插件不发起任何模型调用。
+- 0.8.1 起宿主测试在 0.2.1 上额外装配 `workingDirectory` 与 `fs-local`：0.2.1 把会话工作目录拆成服务，`run_code` 缺少 `ctx.workingDirectory` 会直接拒绝带 Agent 的调用。插件本身不依赖这两个服务。
 
 ## 测试范围
 
@@ -23,6 +35,8 @@
 
 宿主测试实际组装指定版本的 Cordis、AgentLoop、LLM、Session、SystemPrompt 与 ToolRuntime，用脚本化模型验证：插件加载、模型工具写入、下一步骤上下文刷新、跨会话共享、恢复去重、fork 继承排除和子 Agent 隔离。跨项目部分另验证：未授权项目读取被拒（`PROJECT_NOT_VISIBLE`）、保存授权后活动会话立即读到、`status.visibleSources` 与 `search`/`list` 覆盖被授权项目，以及带 `project` 的写入只落在当前项目。移动部分在真实注册的管理路由上验证 user→项目与项目→user、`REVISION_CONFLICT`（409）和 `SAME_TARGET`（400）。清空部分在真实注册的路由上验证缺确认标记与用户层目标都被拒（`CONFIRMATION_REQUIRED` / `USER_SCOPE_PROTECTED`，均 400），确认后 `groups` 里该项目为空、旧版 `state/` 检查点消失而 `PROJECT.md` 仍在。删除整个项目部分在同一条真实路由上验证：未清空的项目返回 `PROJECT_NOT_EMPTY`（409）、缺确认标记与用户层目标仍被拒，清空后确认删除返回 200，`groups` 与 `store.projects()` 都不再列出该项目、`PROJECT.md` 随目录消失，而同级项目照旧。PTC 使用真实 run_code 分发桥和测试后端验证规范输出，不验证操作系统沙箱。
 
-模型响应来自测试 adapter，不消耗用户模型额度；提示词在用户所选真实模型上的保存质量与成本需实际使用观察。断电耐久性没有单独验证。未知版本不自动扩大 peer 范围，每次扩展版本前重新执行这套矩阵。
+模型响应来自测试 adapter，不消耗用户模型额度；提示词在用户所选真实模型上的保存质量与成本需实际使用观察。断电耐久性没有单独验证。未知版本不自动扩大兼容范围，每次扩展版本前重新执行这套矩阵。
 
 0.7.0 的移除补充了：后台提炼的调度、检查点与辅助模型调用连同对应测试一起删除，测试数由 121 降到 106（删掉提取与提取恢复两个测试文件，新增旧配置键剥离与显式更新停用条目两项），插件不再发起任何模型调用。0.8.0 增加“删除整个记忆项目”：测试数到 112（store 与 management 各加一组，覆盖空判定、拒绝路径与重建身份），管理路由从 7 条增至 8 条（`POST /api/md-memory/remove`）。仍保留并继续验证此前审查的修复：源/目标索引更新失败及源提交后中断的移动恢复、恢复时人工编辑冲突、用户范围授权撤销后的直接读取拒绝、两个不同问题第一次实际模型请求的正文召回，以及损坏项目元数据后的权限保留。
+
+0.8.1 只改兼容声明与测试装配，业务代码、数据格式与路由都没有变化，测试数与 112 相同。新增 `rc1` 矩阵列（`0.2.1-rc.1` + Cordis `4.0.5`）与真实桌面端验证：把 `.tgz` 装进独立 `mdmemory-verify` profile 后启动 0.2.1-rc.1 宿主，`pluginManager/listPlugins` 里 `include:md-memory` 为 `enabled: true`、`fiberPhase: active`，启动日志有 `plugin.started` 与 `management.registered`（8 条路由），`/api/md-memory/groups`、`/settings`、`/read` 均 200，浏览器打开「记忆」页正常渲染条目、无 pageerror。

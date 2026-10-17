@@ -62,4 +62,10 @@ PROJECT.md 损坏的目录仍保留其显式读取限制和对它的授权引用
 | src/settings.ts | SETTINGS.md 的验证、旧键（`recallUser` 与 0.7.0 移除的后台提炼配置）的兼容剥离、并发校验与持久化 |
 | src/client/ | DSH 页面插槽、记忆编辑器与配置表单 |
 
-改变接口或持久格式时先运行 `npm run check`、`npm run test:host`、`npm run test:compat`。兼容脚本在 `.compat/rc` 和 `.compat/alpha` 安装明确版本，不操作用户 profile。
+改变接口或持久格式时先运行 `npm run check`、`npm run test:host`、`npm run test:compat`。兼容脚本在 `.compat/rc`、`.compat/alpha` 与 `.compat/rc1` 安装明确版本，不操作用户 profile。
+
+## 宿主兼容声明
+
+`package.json` 的 `engines.dsh` 决定宿主是否装载这一行：**只要写了它，`peerDependencies` 就不再参与判定**；不写时才逐个检查 `@deepseek-ai/dsh*` peer。因此升级宿主版本时先确认 `engines.dsh` 的范围（当前 `>=0.2.0-rc.2 <0.3.0-0`），并重跑三列兼容矩阵。宿主判定失败只会把插件行整行禁用（日志 `dsh: disabling profile plugin row`），不会报出源码级错误，容易被误当成界面 bug。
+
+0.2.1 起宿主把会话工作目录拆成 `ctx.workingDirectory` 服务，`run_code` 缺少它会拒绝带 Agent 的调用。`tests/host-harness.mjs` 只在能解析到本地 `@deepseek-ai/dsh-working-directory` / `dsh-fs-local` 时才装配它们（解析范围限制在 harness 自己所在的依赖树），因此同一份 harness 仍能在 0.2.0 上运行。

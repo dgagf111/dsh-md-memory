@@ -1,7 +1,13 @@
 import { mkdir, writeFile, cp, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { spawn } from 'node:child_process';
-const versions = [{ name: 'rc', dsh: '0.2.0-rc.2', cordis: '4.0.4' }, { name: 'alpha', dsh: '0.2.1-alpha.1', cordis: '4.0.5-alpha.1' }];
+const versions = [
+  { name: 'rc', dsh: '0.2.0-rc.2', cordis: '4.0.4' },
+  { name: 'alpha', dsh: '0.2.1-alpha.1', cordis: '4.0.5-alpha.1' },
+  // 0.2.1-rc.1 split the working directory out of dsh-tools: run_code refuses
+  // an Agent without that service, so the host contract needs both packages.
+  { name: 'rc1', dsh: '0.2.1-rc.1', cordis: '4.0.5', extra: ['working-directory', 'fs-local'] },
+];
 const packages = ['agent', 'agent-loop', 'llm', 'session', 'session-projection', 'session-query', 'system-prompt', 'tools', 'ptc-runtime',
   'client-connection', 'client-ui-layout', 'client-ui-sidebar', 'client-ui-slots', 'client-ui-renderer', 'client-locale'];
 const npmCli = process.env.npm_execpath;
@@ -17,7 +23,7 @@ for (const version of versions) {
   const directory = resolve('.compat', version.name); await mkdir(directory, { recursive: true });
   const dependencies = { '@deepseek-ai/cordis': version.cordis, '@deepseek-ai/schemastery': '3.18.4', yaml: '^2.8.1' };
   dependencies.react = '19.3.0'; dependencies['@types/react'] = '19.3.0';
-  for (const name of packages) dependencies[`@deepseek-ai/dsh-${name}`] = version.dsh;
+  for (const name of [...packages, ...(version.extra ?? [])]) dependencies[`@deepseek-ai/dsh-${name}`] = version.dsh;
   await writeFile(join(directory, 'package.json'), JSON.stringify({ name: `md-memory-contract-${version.name}`, private: true, type: 'module', dependencies }, null, 2));
   // Copy into a clean tree: a file deleted from the repository must not survive
   // in `.compat/` and get type-checked again.
